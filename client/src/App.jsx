@@ -140,7 +140,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <FaultyTerminal />
       <Navbar
         appState={appState}

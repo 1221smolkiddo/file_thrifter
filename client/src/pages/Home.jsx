@@ -46,7 +46,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
           color: 'var(--text-primary)',
         }}>
           SHARE FILES<br />
-          WITHOUT THE<br />
+          WITHOUT A<br />
           MESS.
         </h1>
 
@@ -56,7 +56,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
           lineHeight: 1.6,
           maxWidth: '380px',
         }}>
-          Send files, text and links directly<br />
+          Share files directly.<br />
           between your devices.<br /><br />
           No accounts. No storage. No history.
         </p>
@@ -76,11 +76,12 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
                 borderRadius: '2px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                justifyContent: 'center',
+                gap: '0.5rem',
               }}
               className="touch-target"
             >
-              CREATE SESSION <ArrowRight size={18} />
+              GENERATE QR <ArrowRight size={18} />
             </button>
           )}
 
