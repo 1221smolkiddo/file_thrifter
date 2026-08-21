@@ -1,122 +1,98 @@
 import React from 'react';
-import { Smartphone, Check, X, ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Check, X } from 'lucide-react';
 
 export function PairingModal({ onAccept, onReject }) {
   return (
     <div style={{
       position: 'fixed',
       inset: 0,
-      background: 'rgba(8, 8, 10, 0.85)',
-      backdropFilter: 'blur(12px)',
+      background: 'rgba(11, 11, 10, 0.85)',
+      backdropFilter: 'blur(8px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 200,
-      padding: '1.5rem',
+      zIndex: 1000,
+      padding: '1rem',
     }}>
       <div style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--accent-cyan)',
-        padding: '2rem',
-        maxWidth: '440px',
         width: '100%',
+        maxWidth: '420px',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--accent-lime)',
         borderRadius: '4px',
-        boxShadow: '0 0 50px rgba(0, 240, 255, 0.25)',
+        padding: '2.5rem 2rem',
+        boxShadow: '0 0 40px var(--accent-lime-glow)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         textAlign: 'center',
-        gap: '1.5rem',
       }} className="swiss-grid-bg">
+        
         <div style={{
           width: '64px',
           height: '64px',
-          background: 'var(--accent-cyan-glow)',
-          border: '1px solid var(--accent-cyan)',
           borderRadius: '50%',
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--accent-lime)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'var(--accent-cyan)',
-        }} className="animate-pulse-glow">
-          <Smartphone size={32} />
-        </div>
-
-        <div>
-          <span className="mono" style={{
-            fontSize: '0.7rem',
-            color: 'var(--accent-cyan)',
-            fontWeight: 700,
-            letterSpacing: '0.15em',
-            display: 'block',
-            marginBottom: '0.5rem',
-          }}>
-            SECURITY CHECK
-          </span>
-          <h3 style={{
-            fontSize: '1.5rem',
-            fontWeight: 800,
-            letterSpacing: '-0.02em',
-            marginBottom: '0.5rem',
-          }}>
-            DEVICE WANTS TO CONNECT
-          </h3>
-          <p style={{
-            color: 'var(--text-secondary)',
-            fontSize: '0.85rem',
-            lineHeight: 1.5,
-          }}>
-            A mobile/remote device scanned your QR code and requested a direct pairing session.
-          </p>
-        </div>
-
-        <div style={{
-          display: 'flex',
-          gap: '1rem',
-          width: '100%',
-          marginTop: '0.5rem',
+          color: 'var(--accent-lime)',
+          marginBottom: '1.5rem',
         }}>
+          <ShieldAlert size={32} />
+        </div>
+
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.75rem', letterSpacing: '0.02em' }}>
+          CONNECTION REQUEST
+        </h2>
+        
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '2.5rem', lineHeight: 1.5 }}>
+          A peer is attempting to establish a secure, ephemeral connection with your session.
+        </p>
+
+        <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
           <button
             onClick={onReject}
             style={{
               flex: 1,
               background: 'transparent',
-              border: '1px solid var(--accent-red)',
-              color: 'var(--accent-red)',
+              border: '1px solid var(--bg-surface-border)',
+              color: 'var(--text-primary)',
               padding: '0.85rem',
               fontWeight: 700,
-              fontSize: '0.85rem',
-              letterSpacing: '0.08em',
+              fontSize: '0.8rem',
+              letterSpacing: '0.05em',
+              borderRadius: '2px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
-              borderRadius: '2px',
             }}
           >
-            <X size={18} />
+            <X size={16} />
             REJECT
           </button>
-
+          
           <button
             onClick={onAccept}
             style={{
               flex: 1,
-              background: 'var(--accent-cyan)',
-              color: '#08080a',
+              background: 'var(--accent-lime)',
+              border: 'none',
+              color: 'var(--bg-primary)',
               padding: '0.85rem',
               fontWeight: 800,
-              fontSize: '0.85rem',
-              letterSpacing: '0.08em',
+              fontSize: '0.8rem',
+              letterSpacing: '0.05em',
+              borderRadius: '2px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
-              borderRadius: '2px',
-              boxShadow: '0 0 20px var(--accent-cyan-glow)',
             }}
           >
-            <Check size={18} />
+            <Check size={16} />
             ACCEPT
           </button>
         </div>

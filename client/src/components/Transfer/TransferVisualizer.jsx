@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Laptop, Smartphone, FileText, CheckCircle2, ShieldCheck, Zap, ArrowRight } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Laptop, Smartphone, FileText, CheckCircle2, ShieldCheck, Zap } from 'lucide-react';
 
 export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) {
   const containerRef = useRef(null);
@@ -24,7 +24,6 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
   const isCompleted = status === 'COMPLETED' || percentage >= 100;
   const isSender = status === 'SENDING' || (isHost && status !== 'RECEIVING');
 
-  // Dynamic particle speed: faster speedMbps = faster dash animation
   const animDuration = Math.max(0.4, 2.5 - Math.min(2.0, parseFloat(speedMbps) / 20));
 
   return (
@@ -37,20 +36,18 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
       gap: '1.5rem',
     }} ref={containerRef}>
       
-      {/* Visualizer Connection Line & Nodes */}
       <div style={{
         background: 'var(--bg-surface)',
-        border: `1px solid ${isCompleted ? 'var(--accent-green)' : 'var(--bg-surface-border)'}`,
+        border: `1px solid ${isCompleted ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
         borderRadius: '4px',
         padding: '2rem 1.5rem',
         position: 'relative',
         boxShadow: isCompleted 
-          ? '0 0 30px var(--accent-green-glow)' 
-          : '0 0 30px var(--accent-cyan-glow)',
+          ? '0 0 30px rgba(242, 240, 234, 0.05)' 
+          : 'none',
         transition: 'all 0.3s ease',
       }} className="swiss-grid-bg">
         
-        {/* Connection Header Metadata */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -58,16 +55,15 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
           marginBottom: '2rem',
           fontSize: '0.75rem',
         }} className="mono">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-green)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-primary)' }}>
             <ShieldCheck size={14} />
-            <span>DIRECT CONNECTION (SIMULATED)</span>
+            <span>DIRECT CONNECTION</span>
           </div>
           <div style={{ color: 'var(--text-secondary)' }}>
-            SECURE ENCRYPTED TRANSPORT
+            ENCRYPTED TRANSPORT
           </div>
         </div>
 
-        {/* Dynamic Data Flow Nodes */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -75,7 +71,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
           position: 'relative',
           padding: '0 1rem',
         }}>
-          {/* Node 1: Sender */}
+          {/* Sender Node */}
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -87,21 +83,21 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
               width: '56px',
               height: '56px',
               background: 'var(--bg-primary)',
-              border: `2px solid ${isSender ? 'var(--accent-cyan)' : 'var(--bg-surface-border)'}`,
+              border: `2px solid ${isSender ? 'var(--accent-lime)' : 'var(--bg-surface-border)'}`,
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: isSender ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+              color: isSender ? 'var(--accent-lime)' : 'var(--text-secondary)',
             }}>
               {isHost ? <Laptop size={26} /> : <Smartphone size={26} />}
             </div>
             <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
-              {isHost ? 'LAPTOP (HOST)' : 'PHONE (PEER)'}
+              {isHost ? 'LAPTOP' : 'PHONE'}
             </span>
           </div>
 
-          {/* Animated Connecting Vector / Data Stream */}
+          {/* Stream */}
           <div style={{
             flex: 1,
             height: '40px',
@@ -112,54 +108,32 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
             justifyContent: 'center',
           }}>
             <svg style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-              {/* Background trace line */}
               <line
-                x1="0"
-                y1="50%"
-                x2="100%"
-                y2="50%"
-                stroke="var(--bg-surface-border)"
-                strokeWidth="3"
-                strokeDasharray="4 4"
+                x1="0" y1="50%" x2="100%" y2="50%"
+                stroke="var(--bg-surface-border)" strokeWidth="3" strokeDasharray="4 4"
               />
-              
-              {/* Animated particle flow stroke */}
               {!isCompleted && (
                 <line
-                  x1="0"
-                  y1="50%"
-                  x2="100%"
-                  y2="50%"
-                  stroke="var(--accent-cyan)"
-                  strokeWidth="3"
-                  strokeDasharray="12 12"
-                  style={{
-                    animation: `dashFlow ${animDuration}s linear infinite`,
-                  }}
+                  x1="0" y1="50%" x2="100%" y2="50%"
+                  stroke="var(--accent-lime)" strokeWidth="3" strokeDasharray="12 12"
+                  style={{ animation: `dashFlow ${animDuration}s linear infinite` }}
                 />
               )}
-
-              {/* Completed stroke */}
               {isCompleted && (
                 <line
-                  x1="0"
-                  y1="50%"
-                  x2="100%"
-                  y2="50%"
-                  stroke="var(--accent-green)"
-                  strokeWidth="4"
+                  x1="0" y1="50%" x2="100%" y2="50%"
+                  stroke="var(--text-primary)" strokeWidth="4"
                 />
               )}
             </svg>
 
-            {/* Floating Speed Meter Pill */}
             {!isCompleted && (
               <div style={{
                 position: 'absolute',
                 top: '-18px',
                 background: 'var(--bg-primary)',
-                border: '1px solid var(--accent-cyan)',
-                color: 'var(--accent-cyan)',
+                border: '1px solid var(--accent-lime)',
+                color: 'var(--accent-lime)',
                 padding: '0.2rem 0.6rem',
                 borderRadius: '12px',
                 fontSize: '0.75rem',
@@ -170,7 +144,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
             )}
           </div>
 
-          {/* Node 2: Receiver */}
+          {/* Receiver Node */}
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -182,62 +156,49 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
               width: '56px',
               height: '56px',
               background: 'var(--bg-primary)',
-              border: `2px solid ${isCompleted ? 'var(--accent-green)' : 'var(--bg-surface-border)'}`,
+              border: `2px solid ${isCompleted ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: isCompleted ? 'var(--accent-green)' : 'var(--text-secondary)',
+              color: isCompleted ? 'var(--text-primary)' : 'var(--text-secondary)',
             }}>
               {!isHost ? <Laptop size={26} /> : <Smartphone size={26} />}
             </div>
             <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
-              {!isHost ? 'LAPTOP (HOST)' : 'PHONE (PEER)'}
+              {!isHost ? 'LAPTOP' : 'PHONE'}
             </span>
           </div>
         </div>
 
-        {/* File & Transfer Progress Readout */}
+        {/* Progress */}
         <div style={{
           marginTop: '2.5rem',
           display: 'flex',
           flexDirection: 'column',
           gap: '1rem',
         }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-          }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                marginBottom: '0.25rem',
-              }}>
-                <FileText size={18} style={{ color: 'var(--accent-cyan)' }} />
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, wordBreak: 'break-all' }}>
-                  {fileInfo.name}
-                </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                <FileText size={18} style={{ color: 'var(--accent-lime)' }} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, wordBreak: 'break-all' }}>{fileInfo.name}</h3>
               </div>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }} className="mono">
                 Total size: {formatSize(totalBytes)}
               </span>
             </div>
-
             <div style={{ textAlign: 'right' }} className="mono">
               <span style={{
                 fontSize: '1.75rem',
                 fontWeight: 800,
-                color: isCompleted ? 'var(--accent-green)' : 'var(--accent-cyan)',
+                color: isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
               }}>
                 {percentage}%
               </span>
             </div>
           </div>
 
-          {/* Progress Bar Container */}
           <div style={{
             width: '100%',
             height: '10px',
@@ -250,45 +211,36 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
             <div style={{
               width: `${percentage}%`,
               height: '100%',
-              background: isCompleted
-                ? 'linear-gradient(90deg, #00f0ff, #00ff9d)'
-                : 'linear-gradient(90deg, rgba(0,240,255,0.4), #00f0ff)',
+              background: isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
               transition: 'width 0.1s linear',
-              boxShadow: '0 0 12px var(--accent-cyan)',
+              boxShadow: isCompleted ? 'none' : '0 0 12px var(--accent-lime-glow)',
             }} />
           </div>
 
-          {/* Bottom Statistics Row */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             fontSize: '0.75rem',
             color: 'var(--text-secondary)',
           }} className="mono">
-            <span>
-              {formatSize(transferredBytes)} / {formatSize(totalBytes)}
-            </span>
+            <span>{formatSize(transferredBytes)} / {formatSize(totalBytes)}</span>
             <span>
               {isCompleted ? (
-                <span style={{ color: 'var(--accent-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <CheckCircle2 size={14} /> TRANSFERRED WITH ZERO TRACE
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <CheckCircle2 size={14} /> COMPLETE
                 </span>
-              ) : (
-                `SPEED: ${speedMbps} MB/s`
-              )}
+              ) : `SPEED: ${speedMbps} MB/s`}
             </span>
           </div>
         </div>
-
       </div>
 
-      {/* Completion Action */}
       {isCompleted && (
         <button
           onClick={onBlastAnother}
           style={{
-            background: 'var(--accent-green)',
-            color: '#08080a',
+            background: 'var(--text-primary)',
+            color: 'var(--bg-primary)',
             padding: '1rem',
             fontWeight: 800,
             fontSize: '0.95rem',
@@ -298,24 +250,18 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
             alignItems: 'center',
             justifyContent: 'center',
             gap: '0.5rem',
-            boxShadow: '0 0 20px var(--accent-green-glow)',
             width: '100%',
           }}
         >
           <Zap size={20} />
-          BLAST ANOTHER FILE
+          BLAST ANOTHER
         </button>
       )}
 
-      {/* Custom CSS Animation Keyframe for vector dash stream */}
       <style>{`
         @keyframes dashFlow {
-          from {
-            stroke-dashoffset: 24;
-          }
-          to {
-            stroke-dashoffset: 0;
-          }
+          from { stroke-dashoffset: 24; }
+          to { stroke-dashoffset: 0; }
         }
       `}</style>
     </div>

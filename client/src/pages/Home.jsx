@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Zap, QrCode, ArrowRight, ShieldCheck, Lock, Smartphone } from 'lucide-react';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
+import { QRCodeDisplay } from '../components/QR/QRCodeDisplay';
+import { APP_STATE } from '../hooks/useWebSocketSession';
 
-export function Home({ onCreateSession, onJoinSession }) {
+export function Home({ appState, sessionData, onCreateSession, onJoinSession }) {
   const [inputToken, setInputToken] = useState('');
 
   const handleJoinSubmit = (e) => {
     e.preventDefault();
     if (!inputToken.trim()) return;
 
-    // Handle full URL pasted or token alone
     let token = inputToken.trim();
     if (token.includes('token=')) {
       const match = token.match(/token=([a-zA-Z0-9]+)/);
@@ -17,187 +18,172 @@ export function Home({ onCreateSession, onJoinSession }) {
     onJoinSession(token);
   };
 
+  const isWaiting = appState === APP_STATE.WAITING_FOR_DEVICE;
+
   return (
     <div style={{
-      maxWidth: '680px',
       width: '100%',
+      maxWidth: '1100px',
       margin: '0 auto',
-      padding: '2rem 1rem',
-      display: 'flex',
-      flexDirection: 'column',
+      padding: '2rem',
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+      gap: '4rem',
       alignItems: 'center',
-      gap: '2.5rem',
-      textAlign: 'center',
     }}>
-      {/* Brand Hero */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          background: 'var(--accent-cyan-glow)',
-          border: '1px solid var(--accent-cyan)',
-          padding: '0.35rem 0.85rem',
-          borderRadius: '12px',
-          color: 'var(--accent-cyan)',
-          fontSize: '0.75rem',
-          fontWeight: 700,
-          letterSpacing: '0.1em',
-        }} className="mono">
-          <ShieldCheck size={14} />
-          ZERO STORAGE // P2P SIGNALING
-        </div>
-
+      {/* Left Side: Typography & Description */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: '2rem',
+      }}>
         <h1 style={{
-          fontSize: '3.5rem',
-          fontWeight: 900,
+          fontSize: 'clamp(2.5rem, 5vw, 4rem)',
+          fontWeight: 800,
           letterSpacing: '-0.03em',
-          lineHeight: 1,
-          marginTop: '0.5rem',
+          lineHeight: 1.1,
           color: 'var(--text-primary)',
         }}>
-          THRIFT
+          SHARE FILES<br />
+          WITHOUT THE<br />
+          MESS.
         </h1>
 
         <p style={{
           fontSize: '1rem',
-          fontWeight: 600,
-          letterSpacing: '0.25em',
-          color: 'var(--accent-cyan)',
-          marginTop: '0.25rem',
+          color: 'var(--text-secondary)',
+          lineHeight: 1.6,
+          maxWidth: '380px',
         }}>
-          SHARE WITHOUT A TRACE
+          Send files, text and links directly<br />
+          between your devices.<br /><br />
+          No accounts. No storage. No history.
         </p>
 
-        <p style={{
-          fontSize: '0.9rem',
-          color: 'var(--text-secondary)',
-          maxWidth: '480px',
-          lineHeight: 1.6,
-          marginTop: '0.75rem',
-        }}>
-          Instant, ephemeral file & text transfer between phone and laptop. No accounts, no permanent storage, no history.
-        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '340px' }}>
+          {!isWaiting && (
+            <button
+              onClick={onCreateSession}
+              style={{
+                width: '100%',
+                background: 'var(--text-primary)',
+                color: 'var(--bg-primary)',
+                padding: '1rem 1.25rem',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                letterSpacing: '0.05em',
+                borderRadius: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+              className="touch-target"
+            >
+              CREATE SESSION <ArrowRight size={18} />
+            </button>
+          )}
+
+          {!isWaiting && (
+            <form onSubmit={handleJoinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem',
+                color: 'var(--text-muted)',
+                fontSize: '0.7rem',
+                marginBottom: '0.25rem',
+              }} className="mono">
+                <span>OR JOIN EXISTING</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                <input
+                  type="text"
+                  value={inputToken}
+                  onChange={(e) => setInputToken(e.target.value)}
+                  placeholder="Paste pairing token..."
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem 1rem',
+                    fontSize: '0.85rem',
+                    borderRadius: '2px',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--bg-surface-border)',
+                  }}
+                  className="mono"
+                />
+                <button
+                  type="submit"
+                  disabled={!inputToken.trim()}
+                  style={{
+                    background: inputToken.trim() ? 'var(--bg-surface-hover)' : 'transparent',
+                    border: `1px solid ${inputToken.trim() ? 'var(--text-secondary)' : 'var(--bg-surface-border)'}`,
+                    color: inputToken.trim() ? 'var(--text-primary)' : 'var(--text-muted)',
+                    padding: '0 1rem',
+                    fontWeight: 600,
+                    borderRadius: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
 
-      {/* Main Actions */}
+      {/* Right Side: QR Panel */}
       <div style={{
-        width: '100%',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '1.25rem',
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: '100%',
       }}>
-        <button
-          onClick={onCreateSession}
-          style={{
-            width: '100%',
-            background: 'var(--accent-cyan)',
-            color: '#08080a',
-            padding: '1.25rem',
-            fontWeight: 800,
-            fontSize: '1.1rem',
-            letterSpacing: '0.08em',
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.75rem',
-            boxShadow: '0 0 30px var(--accent-cyan-glow)',
-          }}
-          className="touch-target"
-        >
-          <QrCode size={24} />
-          CREATE SESSION (SHOW QR)
-        </button>
-
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '1rem',
-          color: 'var(--text-muted)',
-          fontSize: '0.75rem',
-        }} className="mono">
-          <div style={{ flex: 1, height: '1px', background: 'var(--bg-surface-border)' }} />
-          <span>OR JOIN VIA TOKEN</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--bg-surface-border)' }} />
-        </div>
-
-        <form onSubmit={handleJoinSubmit} style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
-          <input
-            type="text"
-            value={inputToken}
-            onChange={(e) => setInputToken(e.target.value)}
-            placeholder="Paste pairing token or QR link..."
+        {isWaiting ? (
+          <div style={{ width: '100%', maxWidth: '380px' }}>
+            <QRCodeDisplay sessionData={sessionData} />
+          </div>
+        ) : (
+          <div
+            onClick={onCreateSession}
             style={{
-              flex: 1,
-              padding: '0.85rem 1rem',
-              fontSize: '0.9rem',
-              borderRadius: '4px',
-            }}
-            className="mono"
-          />
-          <button
-            type="submit"
-            disabled={!inputToken.trim()}
-            style={{
-              background: inputToken.trim() ? 'var(--bg-surface-hover)' : 'var(--bg-surface)',
-              border: `1px solid ${inputToken.trim() ? 'var(--accent-cyan)' : 'var(--bg-surface-border)'}`,
-              color: inputToken.trim() ? 'var(--accent-cyan)' : 'var(--text-muted)',
-              padding: '0.85rem 1.25rem',
-              fontWeight: 700,
-              fontSize: '0.85rem',
+              width: '100%',
+              maxWidth: '380px',
+              aspectRatio: '1/1',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--bg-surface-border)',
               borderRadius: '4px',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              gap: '0.4rem',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              position: 'relative',
+            }}
+            className="swiss-grid-bg"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--accent-lime)';
+              e.currentTarget.style.boxShadow = '0 0 24px var(--accent-lime-glow)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--bg-surface-border)';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            JOIN <ArrowRight size={16} />
-          </button>
-        </form>
-      </div>
-
-      {/* Security Principles Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '1rem',
-        width: '100%',
-        marginTop: '1rem',
-        textAlign: 'left',
-      }}>
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--bg-surface-border)',
-          padding: '1rem',
-          borderRadius: '2px',
-        }}>
-          <Lock size={18} style={{ color: 'var(--accent-cyan)', marginBottom: '0.5rem' }} />
-          <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.25rem' }}>NO ACCOUNTS</h4>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Instant session without registration or email.</p>
-        </div>
-
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--bg-surface-border)',
-          padding: '1rem',
-          borderRadius: '2px',
-        }}>
-          <Zap size={18} style={{ color: 'var(--accent-green)', marginBottom: '0.5rem' }} />
-          <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.25rem' }}>ZERO PERSISTENCE</h4>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Files move live between devices and vanish.</p>
-        </div>
-
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--bg-surface-border)',
-          padding: '1rem',
-          borderRadius: '2px',
-        }}>
-          <Smartphone size={18} style={{ color: 'var(--accent-cyan)', marginBottom: '0.5rem' }} />
-          <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.25rem' }}>ONE-TIME QR</h4>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cryptographic pairing token expires automatically.</p>
-        </div>
+            <span className="mono" style={{
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              letterSpacing: '0.1em',
+              color: 'var(--text-secondary)',
+            }}>
+              GENERATE QR <ArrowUpRight size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }} />
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

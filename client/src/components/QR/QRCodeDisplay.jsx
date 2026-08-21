@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Copy, Check, QrCode, Clock } from 'lucide-react';
+import { Copy, Check, Clock } from 'lucide-react';
 
 export function QRCodeDisplay({ sessionData }) {
   const canvasRef = useRef(null);
@@ -9,25 +9,23 @@ export function QRCodeDisplay({ sessionData }) {
 
   const { displayId, sessionToken, expiresAt } = sessionData;
 
-  // Build deployment-safe QR URL containing secret sessionToken
   const qrUrl = `${window.location.origin}/?token=${sessionToken}`;
 
   useEffect(() => {
     if (!canvasRef.current || !sessionToken) return;
 
     QRCode.toCanvas(canvasRef.current, qrUrl, {
-      width: 240,
+      width: 280,
       margin: 2,
       color: {
-        dark: '#08080a',
-        light: '#ffffff',
+        dark: '#0B0B0A',
+        light: '#FFFFFF',
       },
     }, (error) => {
       if (error) console.error('[THRIFT] QR code error:', error);
     });
   }, [qrUrl, sessionToken]);
 
-  // Countdown timer calculation
   useEffect(() => {
     if (!expiresAt) return;
 
@@ -58,98 +56,81 @@ export function QRCodeDisplay({ sessionData }) {
 
   return (
     <div style={{
+      width: '100%',
+      aspectRatio: '1/1',
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--bg-surface-border)',
+      borderRadius: '4px',
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center',
-      gap: '1.5rem',
-      maxWidth: '420px',
-      margin: '0 auto',
-      width: '100%',
+      padding: '2rem',
+      position: 'relative',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
     }}>
       <div style={{
-        textAlign: 'center',
-      }}>
-        <h2 style={{
-          fontSize: '1.75rem',
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-          marginBottom: '0.25rem',
-        }}>
-          SCAN TO CONNECT
-        </h2>
-        <p style={{
-          color: 'var(--text-secondary)',
-          fontSize: '0.85rem',
-          fontWeight: 500,
-        }}>
-          Point phone camera at QR code to pair devices instantly
-        </p>
-      </div>
-
-      <div style={{
-        background: '#ffffff',
-        padding: '1.25rem',
-        borderRadius: '4px',
-        boxShadow: '0 0 40px rgba(0, 240, 255, 0.15)',
         display: 'flex',
-        flexDirection: 'column',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: '1.5rem',
       }}>
-        <canvas ref={canvasRef} style={{ width: '100%', maxWidth: '240px', height: 'auto' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          SCAN TO CONNECT
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--accent-lime)' }}>
+          <span style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--accent-lime)',
+            display: 'inline-block',
+          }} className="animate-pulse-glow" />
+          <span className="mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>SESSION ACTIVE</span>
+        </div>
       </div>
 
-      {/* Session Display ID + Expiration readout */}
       <div style={{
-        width: '100%',
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--bg-surface-border)',
-        padding: '1rem',
-        borderRadius: '2px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.75rem',
+        background: '#FFFFFF',
+        padding: '0.75rem',
+        borderRadius: '4px',
+        alignSelf: 'center',
+        marginBottom: 'auto',
       }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid var(--bg-surface-border)',
-          paddingBottom: '0.75rem',
-        }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-            SESSION ID
-          </span>
-          <span className="mono" style={{
-            fontSize: '1.1rem',
+        <canvas ref={canvasRef} style={{ width: '100%', maxWidth: '240px', height: 'auto', display: 'block' }} />
+      </div>
+
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+        marginTop: '1.5rem',
+      }}>
+        <div>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }} className="mono">ID</div>
+          <div className="mono" style={{
+            fontSize: '1.25rem',
             fontWeight: 700,
-            color: 'var(--accent-cyan)',
-            letterSpacing: '0.15em',
+            color: 'var(--text-primary)',
+            letterSpacing: '0.1em',
+            lineHeight: 1,
           }}>
             {displayId}
-          </span>
+          </div>
         </div>
-
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)' }}>
-            <Clock size={14} />
-            <span style={{ fontSize: '0.75rem' }}>Expires in:</span>
-            <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 600 }}>
-              {timeLeft}
-            </span>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)' }}>
+            <Clock size={12} />
+            <span className="mono" style={{ fontSize: '0.75rem' }}>{timeLeft}</span>
           </div>
 
           <button
             onClick={handleCopyLink}
             style={{
-              background: copied ? 'var(--accent-green-glow)' : 'var(--bg-surface-hover)',
-              border: `1px solid ${copied ? 'var(--accent-green)' : 'var(--bg-surface-border)'}`,
-              color: copied ? 'var(--accent-green)' : 'var(--text-primary)',
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.75rem',
+              background: copied ? 'var(--text-primary)' : 'transparent',
+              border: `1px solid ${copied ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
+              color: copied ? 'var(--bg-primary)' : 'var(--text-secondary)',
+              padding: '0.35rem 0.6rem',
+              fontSize: '0.7rem',
               fontWeight: 600,
               display: 'flex',
               alignItems: 'center',
@@ -157,23 +138,10 @@ export function QRCodeDisplay({ sessionData }) {
               borderRadius: '2px',
             }}
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            {copied ? 'COPIED' : 'COPY LINK'}
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? 'COPIED' : 'COPY'}
           </button>
         </div>
-      </div>
-
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        color: 'var(--accent-cyan)',
-        fontSize: '0.8rem',
-        fontWeight: 600,
-        letterSpacing: '0.05em',
-      }} className="mono animate-pulse-glow">
-        <QrCode size={16} />
-        <span>WAITING FOR DEVICE TO SCAN...</span>
       </div>
     </div>
   );

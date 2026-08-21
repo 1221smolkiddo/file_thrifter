@@ -10,7 +10,6 @@ export function FaultyTerminal() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Respect reduced motion
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (prefersReducedMotion) return;
 
@@ -24,15 +23,10 @@ export function FaultyTerminal() {
     };
     window.addEventListener('resize', handleResize);
 
-    // Performance monitor (FPS budget)
     let lastTime = performance.now();
     let frameCount = 0;
     let fps = 60;
     let isLowPerformance = false;
-
-    // Grid lines & subtle particle grid
-    const gridCols = Math.floor(width / 40);
-    const gridRows = Math.floor(height / 40);
 
     const draw = (currentTime) => {
       frameCount++;
@@ -43,7 +37,6 @@ export function FaultyTerminal() {
         frameCount = 0;
         lastTime = currentTime;
 
-        // Auto-throttle if frame rate drops below 45
         if (fps < 45) {
           isLowPerformance = true;
         }
@@ -51,8 +44,8 @@ export function FaultyTerminal() {
 
       ctx.clearRect(0, 0, width, height);
 
-      // Low opacity background grid
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.015)';
+      // Ultra-subtle warm dark grid
+      ctx.strokeStyle = 'rgba(242, 240, 234, 0.012)';
       ctx.lineWidth = 1;
 
       for (let x = 0; x <= width; x += 40) {
@@ -69,27 +62,26 @@ export function FaultyTerminal() {
       }
 
       if (!isLowPerformance) {
-        // Random micro CRT glitch scanlines
-        if (Math.random() < 0.05) {
+        // Minimal glitch scanline
+        if (Math.random() < 0.03) {
           const scanY = Math.random() * height;
-          ctx.fillStyle = 'rgba(0, 240, 255, 0.02)';
-          ctx.fillRect(0, scanY, width, 1 + Math.random() * 3);
+          ctx.fillStyle = 'rgba(183, 255, 90, 0.015)'; // Very faint lime
+          ctx.fillRect(0, scanY, width, 1 + Math.random() * 2);
         }
 
         // Faint terminal flickering text elements in corner
-        if (Math.random() < 0.02) {
+        if (Math.random() < 0.01) {
           ctx.font = '10px "JetBrains Mono", monospace';
-          ctx.fillStyle = 'rgba(113, 113, 122, 0.15)';
+          ctx.fillStyle = 'rgba(140, 138, 132, 0.1)'; // Text secondary with low opacity
           const textSnippet = `SYS_STATUS_OK // ADDR_0x${Math.floor(Math.random() * 0xffff).toString(16)}`;
           ctx.fillText(textSnippet, 24, height - 24);
         }
       }
 
-      // Schedule next frame (slowed down if low performance)
       if (isLowPerformance) {
         setTimeout(() => {
           animationFrameId = requestAnimationFrame(draw);
-        }, 100); // Throttle to ~10fps background update
+        }, 150); // Heavily throttle
       } else {
         animationFrameId = requestAnimationFrame(draw);
       }
