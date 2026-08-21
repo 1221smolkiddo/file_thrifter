@@ -49,29 +49,21 @@ export default function App() {
   const renderContent = () => {
     switch (appState) {
       case APP_STATE.IDLE:
+      case APP_STATE.CREATING_SESSION:
+      case APP_STATE.WAITING_FOR_DEVICE:
         return (
           <Home
+            appState={appState}
+            sessionData={sessionData}
             onCreateSession={createSession}
             onJoinSession={(token) => joinSession(token)}
           />
         );
 
-      case APP_STATE.CREATING_SESSION:
-        return (
-          <div style={{ textAlign: 'center', padding: '4rem 1rem' }} className="mono">
-            <p style={{ color: 'var(--accent-cyan)' }} className="animate-pulse-glow">
-              GENERATING CRYPTOGRAPHIC SESSION...
-            </p>
-          </div>
-        );
-
-      case APP_STATE.WAITING_FOR_DEVICE:
-        return <QRCodeDisplay sessionData={sessionData} />;
-
       case APP_STATE.PAIRING:
         return (
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }} className="mono">
-            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--accent-cyan)' }}>
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--accent-lime)' }}>
               {sessionData.isHost ? 'WAITING FOR APPROVAL...' : 'CONNECTING TO HOST DEVICE...'}
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -124,7 +116,7 @@ export default function App() {
             <button
               onClick={disconnect}
               style={{
-                background: 'var(--accent-cyan)',
+                background: 'var(--accent-lime)',
                 color: '#08080a',
                 padding: '0.75rem 1.5rem',
                 fontWeight: 800,

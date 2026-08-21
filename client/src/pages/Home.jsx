@@ -18,7 +18,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
     onJoinSession(token);
   };
 
-  const isWaiting = appState === APP_STATE.WAITING_FOR_DEVICE;
+  const isWaiting = appState === APP_STATE.WAITING_FOR_DEVICE || appState === APP_STATE.CREATING_SESSION;
 
   return (
     <div style={{
@@ -144,7 +144,27 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
       }}>
         {isWaiting ? (
           <div style={{ width: '100%', maxWidth: '380px' }}>
-            <QRCodeDisplay sessionData={sessionData} />
+            {appState === APP_STATE.CREATING_SESSION ? (
+              <div style={{
+                width: '100%',
+                aspectRatio: '1/1',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--bg-surface-border)',
+                borderRadius: '4px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textAlign: 'center',
+                padding: '2rem'
+              }} className="swiss-grid-bg mono">
+                <p style={{ color: 'var(--accent-lime)' }} className="animate-pulse-glow">
+                  GENERATING CRYPTOGRAPHIC SESSION...
+                </p>
+              </div>
+            ) : (
+              <QRCodeDisplay sessionData={sessionData} />
+            )}
           </div>
         ) : (
           <div
