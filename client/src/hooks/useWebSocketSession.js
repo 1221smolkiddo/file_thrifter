@@ -1,0 +1,281 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+export const APP_STATE = {
+  IDLE: 'IDLE',
+  CREATING_SESSION: 'CREATING_SESSION',
+  WAITING_FOR_DEVICE: 'WAITING_FOR_DEVICE',
+  PAIRING: 'PAIRING',
+  CONNECTED: 'CONNECTED',
+  TRANSFERRING: 'TRANSFERRING',
+  COMPLETED: 'COMPLETED',
+  DISCONNECTED: 'DISCONNECTED',
+  EXPIRED: 'EXPIRED',
+  ERROR: 'ERROR',
+};
+
+export function useWebSocketSession() {
+  const [appState, setAppState] = useState(APP_STATE.IDLE);
+  const [sessionData, setSessionData] = useState({
+    displayId: null,
+    sessionToken: null,
+    expiresAt: null,
+    isHost: false,
+    errorMessage: null,
+  });
+  const [incomingRequest, setIncomingRequest] = useState(false);
+  const [transferPayload, setTransferPayload] = useState(null); // Metadata & incoming progress
+
+  const wsRef = useRef(null);
+
+  // Initialize WS connection
+  const connectWs = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return wsRef.current;
+    }
+
+    const host = window.location.hostname || 'localhost';
+    const wsUrl = `ws://${host}:4000`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      console.log('[THRIFT] WebSocket connected to', wsUrl);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        console.log('[THRIFT] Received event:', msg.type, msg);
+
+        switch (msg.type) {
+          case 'SESSION_CREATED': {
+            setSessionData({
+              displayId: msg.displayId,
+              sessionToken: msg.sessionToken,
+              expiresAt: msg.expiresAt,
+              isHost: true,
+              errorMessage: null,
+            });
+            setAppState(APP_STATE.WAITING_FOR_DEVICE);
+            break;
+          }
+
+          case 'JOINING': {
+            setSessionData((prev) => ({
+              ...prev,
+              displayId: msg.displayId,
+              isHost: false,
+            }));
+            setAppState(APP_STATE.PAIRING);
+            break;
+          }
+
+          case 'CONNECTION_REQUEST': {
+            setIncomingRequest(true);
+            setAppState(APP_STATE.PAIRING);
+            break;
+          }
+
+          case 'CONNECTED': {
+            setIncomingRequest(false);
+            setAppState(APP_STATE.CONNECTED);
+            break;
+          }
+
+          case 'CONNECTION_REJECTED': {
+            setAppState(APP_STATE.ERROR);
+            setSessionData((prev) => ({
+              ...prev,
+              errorMessage: 'Connection request rejected by host device.',
+            }));
+            break;
+          }
+
+          case 'SESSION_EXPIRED': {
+            setAppState(APP_STATE.EXPIRED);
+            break;
+          }
+
+          case 'PEER_DISCONNECTED': {
+            setAppState(APP_STATE.DISCONNECTED);
+            break;
+          }
+
+          case 'TRANSFER_META': {
+            setTransferPayload({
+              fileInfo: msg.fileInfo,
+              transferredBytes: 0,
+              totalBytes: msg.fileInfo.size,
+              percentage: 0,
+              speedBps: 0,
+              speedMbps: '0.0',
+              status: 'RECEIVING',
+            });
+            setAppState(APP_STATE.TRANSFERRING);
+            break;
+          }
+
+          case 'TRANSFER_PROGRESS': {
+            setTransferPayload((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                transferredBytes: msg.transferredBytes,
+                totalBytes: msg.totalBytes,
+                percentage: Math.min(100, Math.round((msg.transferredBytes / msg.totalBytes) * 100)),
+                speedBps: msg.speedBps,
+                speedMbps: (msg.speedBps / (1024 * 1024)).toFixed(1),
+                status: 'RECEIVING',
+              };
+            });
+            break;
+          }
+
+          case 'TRANSFER_COMPLETE': {
+            setTransferPayload((prev) => ({
+              ...prev,
+              transferredBytes: prev ? prev.totalBytes : 0,
+              percentage: 100,
+              status: 'COMPLETED',
+            }));
+            setAppState(APP_STATE.COMPLETED);
+            break;
+          }
+
+          case 'ERROR': {
+            setAppState(APP_STATE.ERROR);
+            setSessionData((prev) => ({ ...prev, errorMessage: msg.message }));
+            break;
+          }
+
+          default:
+            break;
+        }
+      } catch (err) {
+        console.error('[THRIFT] Error parsing WS message:', err);
+      }
+    };
+
+    socket.onclose = () => {
+      console.log('[THRIFT] WebSocket closed');
+    };
+
+    socket.onerror = (err) => {
+      console.error('[THRIFT] WebSocket error:', err);
+    };
+
+    wsRef.current = socket;
+    return socket;
+  }, []);
+
+  useEffect(() => {
+    connectWs();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [connectWs]);
+
+  const send = (data) => {
+    const socket = connectWs();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(data));
+    } else {
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify(data));
+        }
+      }, 300);
+    }
+  };
+
+  const createSession = useCallback(() => {
+    setAppState(APP_STATE.CREATING_SESSION);
+    send({ type: 'CREATE_SESSION' });
+  }, []);
+
+  const joinSession = useCallback((sessionToken) => {
+    setAppState(APP_STATE.PAIRING);
+    setSessionData((prev) => ({ ...prev, sessionToken, isHost: false }));
+    send({ type: 'JOIN_SESSION', sessionToken });
+  }, []);
+
+  const acceptConnection = useCallback(() => {
+    send({ type: 'ACCEPT_CONNECTION', sessionToken: sessionData.sessionToken });
+  }, [sessionData.sessionToken]);
+
+  const rejectConnection = useCallback(() => {
+    send({ type: 'REJECT_CONNECTION', sessionToken: sessionData.sessionToken });
+    setIncomingRequest(false);
+    setAppState(APP_STATE.WAITING_FOR_DEVICE);
+  }, [sessionData.sessionToken]);
+
+  const sendTransferMeta = useCallback((fileInfo) => {
+    send({ type: 'TRANSFER_META', fileInfo });
+    setTransferPayload({
+      fileInfo,
+      transferredBytes: 0,
+      totalBytes: fileInfo.size,
+      percentage: 0,
+      speedBps: 0,
+      speedMbps: '0.0',
+      status: 'SENDING',
+    });
+    setAppState(APP_STATE.TRANSFERRING);
+  }, []);
+
+  const sendTransferProgress = useCallback((transferredBytes, totalBytes, speedBps) => {
+    send({ type: 'TRANSFER_PROGRESS', transferredBytes, totalBytes, speedBps });
+    setTransferPayload((prev) => ({
+      ...prev,
+      transferredBytes,
+      totalBytes,
+      percentage: Math.min(100, Math.round((transferredBytes / totalBytes) * 100)),
+      speedBps,
+      speedMbps: (speedBps / (1024 * 1024)).toFixed(1),
+      status: 'SENDING',
+    }));
+  }, []);
+
+  const sendTransferComplete = useCallback(() => {
+    send({ type: 'TRANSFER_COMPLETE' });
+    setTransferPayload((prev) => ({
+      ...prev,
+      percentage: 100,
+      status: 'COMPLETED',
+    }));
+    setAppState(APP_STATE.COMPLETED);
+  }, []);
+
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    setAppState(APP_STATE.IDLE);
+    setSessionData({
+      displayId: null,
+      sessionToken: null,
+      expiresAt: null,
+      isHost: false,
+      errorMessage: null,
+    });
+    setIncomingRequest(false);
+    setTransferPayload(null);
+  }, []);
+
+  return {
+    appState,
+    sessionData,
+    incomingRequest,
+    transferPayload,
+    createSession,
+    joinSession,
+    acceptConnection,
+    rejectConnection,
+    sendTransferMeta,
+    sendTransferProgress,
+    sendTransferComplete,
+    disconnect,
+    setAppState,
+  };
+}
