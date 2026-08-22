@@ -76,16 +76,6 @@ export function QRCodeDisplay({ sessionData }) {
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
           SCAN TO CONNECT
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--accent-lime)' }}>
-          <span style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--accent-lime)',
-            display: 'inline-block',
-          }} className="animate-pulse-glow" />
-          <span className="mono" style={{ fontSize: '0.7rem', fontWeight: 600 }}>SESSION ACTIVE</span>
-        </div>
       </div>
 
       <div style={{
