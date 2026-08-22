@@ -32,13 +32,16 @@ export default function App() {
     sendTransferComplete,
   });
 
-  // Auto-join if URL contains ?token=...
+  // Auto-join if URL contains ?session=...&token=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token') || params.get('session');
-    if (token && appState === APP_STATE.IDLE) {
-      console.log('[THRIFT] Auto-joining session token from URL:', token);
-      joinSession(token);
+    const sessionId = params.get('session');
+    const token = params.get('token');
+    if (sessionId && token && appState === APP_STATE.IDLE) {
+      console.log('[THRIFT] Auto-joining session from URL');
+      joinSession(sessionId, token);
+      // Clean the URL without reloading the page
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, [appState, joinSession]);
 

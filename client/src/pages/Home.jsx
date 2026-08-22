@@ -10,12 +10,24 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
     e.preventDefault();
     if (!inputToken.trim()) return;
 
-    let token = inputToken.trim();
-    if (token.includes('token=')) {
-      const match = token.match(/token=([a-zA-Z0-9]+)/);
-      if (match && match[1]) token = match[1];
+    const input = inputToken.trim();
+
+    // Try to parse as a full URL with ?session=...&token=...
+    try {
+      const url = new URL(input.startsWith('http') ? input : `http://placeholder${input.startsWith('/') ? '' : '/'}${input}`);
+      const sessionId = url.searchParams.get('session');
+      const token = url.searchParams.get('token');
+      if (sessionId && token) {
+        onJoinSession(sessionId, token);
+        return;
+      }
+    } catch {
+      // Not a valid URL, treat as raw token
     }
-    onJoinSession(token);
+
+    // If it doesn't look like a URL, show error — we need both session + token
+    // For now, the primary join path is via QR scan / URL paste
+    console.warn('[THRIFT] Could not parse session credentials from input');
   };
 
   const isWaiting = appState === APP_STATE.WAITING_FOR_DEVICE || appState === APP_STATE.CREATING_SESSION;

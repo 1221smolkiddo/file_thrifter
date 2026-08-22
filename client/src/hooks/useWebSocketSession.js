@@ -17,10 +17,11 @@ export function useWebSocketSession() {
   const [appState, setAppState] = useState(APP_STATE.IDLE);
   const [sessionData, setSessionData] = useState({
     displayId: null,
-    sessionToken: null,
+    sessionToken: null, // The secret token (used for QR / join URL)
     expiresAt: null,
     isHost: false,
     errorMessage: null,
+    iceServers: null,
   });
   const [incomingRequest, setIncomingRequest] = useState(false);
   const [transferPayload, setTransferPayload] = useState(null); // Metadata & incoming progress
@@ -44,7 +45,7 @@ export function useWebSocketSession() {
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        console.log('[THRIFT] Received event:', msg.type, msg);
+        console.log('[THRIFT] Received event:', msg.type);
 
         switch (msg.type) {
           case 'SESSION_CREATED': {
@@ -54,6 +55,7 @@ export function useWebSocketSession() {
               expiresAt: msg.expiresAt,
               isHost: true,
               errorMessage: null,
+              iceServers: null,
             });
             setAppState(APP_STATE.WAITING_FOR_DEVICE);
             break;
@@ -75,6 +77,18 @@ export function useWebSocketSession() {
             break;
           }
 
+          // New protocol: SESSION_CONNECTED (was 'CONNECTED')
+          case 'SESSION_CONNECTED': {
+            setIncomingRequest(false);
+            setSessionData((prev) => ({
+              ...prev,
+              iceServers: msg.iceServers || null,
+            }));
+            setAppState(APP_STATE.CONNECTED);
+            break;
+          }
+
+          // Keep backward compat with old 'CONNECTED' message type during transition
           case 'CONNECTED': {
             setIncomingRequest(false);
             setAppState(APP_STATE.CONNECTED);
@@ -97,6 +111,12 @@ export function useWebSocketSession() {
 
           case 'PEER_DISCONNECTED': {
             setAppState(APP_STATE.DISCONNECTED);
+            break;
+          }
+
+          case 'WEBRTC_SIGNAL': {
+            // WebRTC signaling will be handled when DataChannel transfer is implemented
+            console.log('[THRIFT] Received WebRTC signal (not yet handled by client)');
             break;
           }
 
@@ -147,6 +167,10 @@ export function useWebSocketSession() {
             break;
           }
 
+          case 'PONG':
+            // Heartbeat response, no action needed
+            break;
+
           default:
             break;
         }
@@ -194,21 +218,26 @@ export function useWebSocketSession() {
     send({ type: 'CREATE_SESSION' });
   }, []);
 
-  const joinSession = useCallback((sessionToken) => {
+  /**
+   * Join a session using the display ID and secret token.
+   * @param {string} sessionId - The 6-character display ID
+   * @param {string} token - The 256-bit hex secret
+   */
+  const joinSession = useCallback((sessionId, token) => {
     setAppState(APP_STATE.PAIRING);
-    setSessionData((prev) => ({ ...prev, sessionToken, isHost: false }));
-    send({ type: 'JOIN_SESSION', sessionToken });
+    setSessionData((prev) => ({ ...prev, displayId: sessionId, isHost: false }));
+    send({ type: 'JOIN_SESSION', sessionId, token });
   }, []);
 
   const acceptConnection = useCallback(() => {
-    send({ type: 'ACCEPT_CONNECTION', sessionToken: sessionData.sessionToken });
-  }, [sessionData.sessionToken]);
+    send({ type: 'ACCEPT_CONNECTION' });
+  }, []);
 
   const rejectConnection = useCallback(() => {
-    send({ type: 'REJECT_CONNECTION', sessionToken: sessionData.sessionToken });
+    send({ type: 'REJECT_CONNECTION' });
     setIncomingRequest(false);
     setAppState(APP_STATE.WAITING_FOR_DEVICE);
-  }, [sessionData.sessionToken]);
+  }, []);
 
   const sendTransferMeta = useCallback((fileInfo) => {
     send({ type: 'TRANSFER_META', fileInfo });
@@ -258,6 +287,7 @@ export function useWebSocketSession() {
       expiresAt: null,
       isHost: false,
       errorMessage: null,
+      iceServers: null,
     });
     setIncomingRequest(false);
     setTransferPayload(null);

@@ -1,10 +1,11 @@
 {
-  "name": "server",
+  "name": "thrift-server",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test tests/backend.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

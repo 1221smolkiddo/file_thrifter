@@ -1,182 +1,137 @@
+// server/index.js
+// THRIFT Signaling Server — Entry Point
+// A WebSocket signaling server for secure, ephemeral device pairing.
+// This server NEVER receives, stores, inspects, or proxies file contents.
+
 import { WebSocketServer, WebSocket } from 'ws';
-import crypto from 'crypto';
+import http from 'http';
+import config from './config.js';
+import SessionManager from './session/SessionManager.js';
+import { createConnectionHandler } from './websocket/connectionHandler.js';
+import rateLimiter from './security/rateLimiter.js';
+import logger from './utils/logger.js';
 
-const PORT = process.env.PORT || 4000;
-const wss = new WebSocketServer({ port: PORT });
+// ─── Create HTTP server (required for origin checking on upgrade) ───
 
-// Active sessions stored by sessionToken
-// sessionToken -> { displayId, sessionToken, hostWs, peerWs, expiresAt, state }
-const sessions = new Map();
-
-function generateDisplayId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Avoid ambiguous chars O, 0, I, 1
-  let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+const server = http.createServer((req, res) => {
+  // Health check endpoint
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', sessions: sessionManager.sessionCount }));
+    return;
   }
-  return result;
-}
 
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex'); // 256-bit entropy token
-}
+  // No other HTTP endpoints — this is a signaling-only server
+  res.writeHead(404);
+  res.end();
+});
 
-// Clean up expired sessions periodically (every 30s)
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (now > session.expiresAt) {
-      notifyAndCleanup(token, 'SESSION_EXPIRED');
+// ─── Create WebSocket server ───
+
+const wss = new WebSocketServer({
+  noServer: true,
+  maxPayload: config.WS_MAX_MESSAGE_SIZE,
+});
+
+const sessionManager = new SessionManager();
+
+// ─── Handle HTTP upgrade to WebSocket with origin checking ───
+
+server.on('upgrade', (req, socket, head) => {
+  const origin = req.headers.origin || '';
+  const clientIp = req.socket.remoteAddress || 'unknown';
+
+  // Rate limit WebSocket connection attempts
+  const rl = rateLimiter.check('WS_CONNECT', clientIp, config.RATE_LIMIT_WS_CONNECT);
+  if (!rl.allowed) {
+    logger.warn('WS', 'Connection rate limited', { ip: 'redacted' });
+    socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // Origin check (in production, restrict to configured frontend origin)
+  if (config.NODE_ENV === 'production') {
+    if (origin && origin !== config.FRONTEND_ORIGIN) {
+      logger.warn('WS', 'Rejected connection from unauthorized origin');
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
     }
   }
-}, 30000);
 
-function notifyAndCleanup(token, reason) {
-  const session = sessions.get(token);
-  if (!session) return;
-
-  const message = JSON.stringify({ type: reason });
-  if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
-    session.hostWs.send(message);
-  }
-  if (session.peerWs && session.peerWs.readyState === WebSocket.OPEN) {
-    session.peerWs.send(message);
-  }
-
-  sessions.delete(token);
-}
-
-wss.on('connection', (ws) => {
-  let boundToken = null;
-  let isHost = false;
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-
-      switch (data.type) {
-        case 'CREATE_SESSION': {
-          const sessionToken = generateToken();
-          const displayId = generateDisplayId();
-          const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-
-          const session = {
-            displayId,
-            sessionToken,
-            hostWs: ws,
-            peerWs: null,
-            expiresAt,
-            state: 'WAITING_FOR_DEVICE'
-          };
-
-          sessions.set(sessionToken, session);
-          boundToken = sessionToken;
-          isHost = true;
-
-          ws.send(JSON.stringify({
-            type: 'SESSION_CREATED',
-            displayId,
-            sessionToken,
-            expiresAt
-          }));
-          break;
-        }
-
-        case 'JOIN_SESSION': {
-          const { sessionToken } = data;
-          const session = sessions.get(sessionToken);
-
-          if (!session) {
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Session not found or expired' }));
-            return;
-          }
-
-          if (Date.now() > session.expiresAt) {
-            notifyAndCleanup(sessionToken, 'SESSION_EXPIRED');
-            return;
-          }
-
-          session.peerWs = ws;
-          session.state = 'PAIRING';
-          boundToken = sessionToken;
-          isHost = false;
-
-          // Notify Host that a device wants to connect
-          if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
-            session.hostWs.send(JSON.stringify({ type: 'CONNECTION_REQUEST' }));
-          }
-
-          ws.send(JSON.stringify({ type: 'JOINING', displayId: session.displayId }));
-          break;
-        }
-
-        case 'ACCEPT_CONNECTION': {
-          const session = sessions.get(data.sessionToken || boundToken);
-          if (!session || ws !== session.hostWs) return;
-
-          session.state = 'CONNECTED';
-          const payload = JSON.stringify({ type: 'CONNECTED', displayId: session.displayId });
-
-          if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
-            session.hostWs.send(payload);
-          }
-          if (session.peerWs && session.peerWs.readyState === WebSocket.OPEN) {
-            session.peerWs.send(payload);
-          }
-          break;
-        }
-
-        case 'REJECT_CONNECTION': {
-          const session = sessions.get(data.sessionToken || boundToken);
-          if (!session || ws !== session.hostWs) return;
-
-          if (session.peerWs && session.peerWs.readyState === WebSocket.OPEN) {
-            session.peerWs.send(JSON.stringify({ type: 'CONNECTION_REJECTED' }));
-          }
-          session.peerWs = null;
-          session.state = 'WAITING_FOR_DEVICE';
-          break;
-        }
-
-        case 'TRANSFER_META':
-        case 'TRANSFER_PROGRESS':
-        case 'TRANSFER_COMPLETE':
-        case 'TRANSFER_CANCEL': {
-          const session = sessions.get(boundToken);
-          if (!session) return;
-
-          const targetWs = isHost ? session.peerWs : session.hostWs;
-          if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-            targetWs.send(JSON.stringify(data));
-          }
-          break;
-        }
-
-        case 'PING': {
-          ws.send(JSON.stringify({ type: 'PONG' }));
-          break;
-        }
-
-        default:
-          break;
-      }
-    } catch (err) {
-      console.error('Error handling WebSocket message:', err);
-    }
-  });
-
-  ws.on('close', () => {
-    if (boundToken) {
-      const session = sessions.get(boundToken);
-      if (session) {
-        const otherWs = isHost ? session.peerWs : session.hostWs;
-        if (otherWs && otherWs.readyState === WebSocket.OPEN) {
-          otherWs.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
-        }
-        sessions.delete(boundToken);
-      }
-    }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
   });
 });
 
-console.log(`[THRIFT WebSocket Server] Listening on ws://localhost:${PORT}`);
+// ─── Handle new WebSocket connections ───
+
+wss.on('connection', (ws, req) => {
+  const clientIp = req.socket.remoteAddress || 'unknown';
+  logger.ws('CLIENT_CONNECTED');
+
+  // Mark connection as alive for heartbeat
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
+  // Set up the message handler
+  createConnectionHandler(ws, sessionManager, clientIp);
+});
+
+// ─── Heartbeat: detect dead connections ───
+
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      logger.ws('HEARTBEAT_TIMEOUT');
+      sessionManager.handleDisconnect(ws);
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, config.WS_HEARTBEAT_INTERVAL_MS);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
+// ─── Graceful shutdown ───
+
+function shutdown() {
+  logger.info('SERVER', 'Shutting down...');
+
+  clearInterval(heartbeatInterval);
+  sessionManager.destroy();
+  rateLimiter.destroy();
+
+  wss.clients.forEach((ws) => {
+    ws.close(1001, 'Server shutting down');
+  });
+
+  wss.close(() => {
+    server.close(() => {
+      logger.info('SERVER', 'Shutdown complete');
+      process.exit(0);
+    });
+  });
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+// ─── Start server ───
+
+server.listen(config.PORT, () => {
+  logger.info('SERVER', `THRIFT Signaling Server listening on port ${config.PORT}`, {
+    env: config.NODE_ENV,
+    frontendOrigin: config.FRONTEND_ORIGIN,
+    sessionTtlMs: config.SESSION_TTL_MS,
+  });
+});
+
+export { server, wss, sessionManager };

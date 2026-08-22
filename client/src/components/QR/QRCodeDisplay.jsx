@@ -9,7 +9,7 @@ export function QRCodeDisplay({ sessionData }) {
 
   const { displayId, sessionToken, expiresAt } = sessionData;
 
-  const qrUrl = `${window.location.origin}/?token=${sessionToken}`;
+  const qrUrl = `${window.location.origin}/?session=${displayId}&token=${sessionToken}`;
 
   useEffect(() => {
     if (!canvasRef.current || !sessionToken) return;
