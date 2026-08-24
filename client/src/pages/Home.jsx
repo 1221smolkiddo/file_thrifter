@@ -5,12 +5,18 @@ import { APP_STATE } from '../hooks/useWebSocketSession';
 
 export function Home({ appState, sessionData, onCreateSession, onJoinSession }) {
   const [inputToken, setInputToken] = useState('');
+  const [joinError, setJoinError] = useState('');
 
   const handleJoinSubmit = (e) => {
     e.preventDefault();
     if (!inputToken.trim()) return;
 
     const input = inputToken.trim();
+    const pairingCode = input.match(/^([A-Z0-9]{6}):([a-f0-9]{64})$/i);
+    if (pairingCode) {
+      onJoinSession(pairingCode[1].toUpperCase(), pairingCode[2]);
+      return;
+    }
 
     // Try to parse as a full URL with ?session=...&token=...
     try {
@@ -27,7 +33,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
 
     // If it doesn't look like a URL, show error — we need both session + token
     // For now, the primary join path is via QR scan / URL paste
-    console.warn('[THRIFT] Could not parse session credentials from input');
+    setJoinError('Paste the pairing code shown below the QR, or scan it.');
   };
 
   const isWaiting = appState === APP_STATE.WAITING_FOR_DEVICE || appState === APP_STATE.CREATING_SESSION;
@@ -113,8 +119,11 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
                 <input
                   type="text"
                   value={inputToken}
-                  onChange={(e) => setInputToken(e.target.value)}
-                  placeholder="Paste pairing token..."
+                  onChange={(e) => {
+                    setInputToken(e.target.value);
+                    setJoinError('');
+                  }}
+                  placeholder="Paste pairing code..."
                   style={{
                     flex: 1,
                     padding: '0.75rem 1rem',
@@ -143,6 +152,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
                   <ArrowRight size={16} />
                 </button>
               </div>
+              {joinError && <span role="alert" className="mono" style={{ color: 'var(--accent-red)', fontSize: '0.7rem' }}>{joinError}</span>}
             </form>
           )}
         </div>

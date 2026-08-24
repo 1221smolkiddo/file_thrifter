@@ -10,6 +10,7 @@ export function QRCodeDisplay({ sessionData }) {
   const { displayId, sessionToken, expiresAt } = sessionData;
 
   const qrUrl = `${window.location.origin}/?session=${displayId}&token=${sessionToken}`;
+  const pairingCode = `${displayId}:${sessionToken}`;
 
   useEffect(() => {
     if (!canvasRef.current || !sessionToken) return;
@@ -48,8 +49,8 @@ export function QRCodeDisplay({ sessionData }) {
     return () => clearInterval(interval);
   }, [expiresAt]);
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(qrUrl);
+  const handleCopyPairingCode = () => {
+    navigator.clipboard.writeText(pairingCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -95,15 +96,17 @@ export function QRCodeDisplay({ sessionData }) {
         marginTop: '1.5rem',
       }}>
         <div>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }} className="mono">ID</div>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }} className="mono">PAIRING CODE</div>
           <div className="mono" style={{
-            fontSize: '1.25rem',
+            fontSize: '0.68rem',
             fontWeight: 700,
             color: 'var(--text-primary)',
-            letterSpacing: '0.1em',
-            lineHeight: 1,
+            letterSpacing: '0.03em',
+            lineHeight: 1.35,
+            maxWidth: '190px',
+            overflowWrap: 'anywhere',
           }}>
-            {displayId}
+            {pairingCode}
           </div>
         </div>
         
@@ -114,7 +117,7 @@ export function QRCodeDisplay({ sessionData }) {
           </div>
 
           <button
-            onClick={handleCopyLink}
+            onClick={handleCopyPairingCode}
             style={{
               background: copied ? 'var(--text-primary)' : 'transparent',
               border: `1px solid ${copied ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,

@@ -40,6 +40,7 @@ export const HANDSHAKE = {
  * File message types are reserved for the forthcoming transfer engine.
  */
 export const DATA_MESSAGE_TYPE = {
+  ROLE: 'ROLE',
   TEXT: 'TEXT',
   TEST: 'TEST',
   FILE_OFFER: 'FILE_OFFER',

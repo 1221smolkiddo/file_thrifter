@@ -6,7 +6,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { createPeerConnection } from '../lib/webrtc/createPeerConnection.js';
 import { RTC_STATE } from '../lib/webrtc/constants.js';
-import { createTextMessage } from '../lib/webrtc/messages.js';
+import {
+  createFileCompleteMessage,
+  createFileOffer,
+  createTextMessage,
+} from '../lib/webrtc/messages.js';
+
+const FILE_CHUNK_BYTES = 16 * 1024;
+const MAX_BUFFERED_BYTES = 512 * 1024;
 
 /**
  * useWebRTC — Manages a WebRTC DataChannel connection.
@@ -173,6 +180,48 @@ export function useWebRTC({
     return sendData(createTextMessage(text));
   }, [sendData]);
 
+  // ─── Send a file as ordered binary chunks through the DataChannel ───
+
+  const sendFile = useCallback(async (file, { onStart, onProgress, onComplete } = {}) => {
+    const peer = peerRef.current;
+    const channel = peer?.dataChannel;
+
+    if (!file || typeof file.slice !== 'function' || !channel || channel.readyState !== 'open') {
+      console.warn('[THRIFT:RTC] Cannot send file — DataChannel not open');
+      return false;
+    }
+
+    const { id, message } = createFileOffer(file);
+
+    try {
+      channel.send(message);
+      onStart?.({ id, name: file.name, size: file.size, type: file.type || 'application/octet-stream' });
+
+      let transferredBytes = 0;
+      for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
+        while (channel.readyState === 'open' && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        if (channel.readyState !== 'open') {
+          throw new Error('P2P connection closed during transfer');
+        }
+
+        const chunk = await file.slice(offset, offset + FILE_CHUNK_BYTES).arrayBuffer();
+        channel.send(chunk);
+        transferredBytes += chunk.byteLength;
+        onProgress?.(transferredBytes, file.size);
+      }
+
+      channel.send(createFileCompleteMessage(id));
+      onComplete?.();
+      return true;
+    } catch (error) {
+      console.error('[THRIFT:RTC] File transfer failed:', error);
+      return false;
+    }
+  }, []);
+
   // ─── Clean up the connection ───
 
   const cleanup = useCallback(() => {
@@ -192,6 +241,7 @@ export function useWebRTC({
     sendTestMessage,
     sendData,
     sendText,
+    sendFile,
     cleanup,
   };
 }

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Laptop, Smartphone, FileText, CheckCircle2, ShieldCheck, Zap } from 'lucide-react';
+import { Laptop, Smartphone, FileText, CheckCircle2, Download, ShieldCheck, Zap } from 'lucide-react';
 
 export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) {
   const containerRef = useRef(null);
@@ -11,6 +11,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
     percentage = 0,
     speedMbps = '0.0',
     status = 'TRANSFERRING',
+    downloadUrl,
   } = transferPayload || {};
 
   const formatSize = (bytes) => {
@@ -251,26 +252,33 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
       </div>
 
       {isCompleted && (
-        <button
-          onClick={onBlastAnother}
-          style={{
-            background: 'var(--text-primary)',
-            color: 'var(--bg-primary)',
-            padding: '1rem',
-            fontWeight: 800,
-            fontSize: '0.95rem',
-            letterSpacing: '0.08em',
-            borderRadius: '2px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
-            width: '100%',
-          }}
-        >
-          <Zap size={20} />
-          BLAST ANOTHER
-        </button>
+        <>
+          {downloadUrl && (
+            <a
+              href={downloadUrl}
+              download={fileInfo.name}
+              style={{
+                background: 'var(--accent-lime)', color: 'var(--bg-primary)', padding: '1rem', fontWeight: 800,
+                fontSize: '0.95rem', letterSpacing: '0.08em', borderRadius: '2px', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%',
+              }}
+            >
+              <Download size={20} />
+              DOWNLOAD FILE
+            </a>
+          )}
+          <button
+            onClick={onBlastAnother}
+            style={{
+              background: 'var(--text-primary)', color: 'var(--bg-primary)', padding: '1rem', fontWeight: 800,
+              fontSize: '0.95rem', letterSpacing: '0.08em', borderRadius: '2px', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%',
+            }}
+          >
+            <Zap size={20} />
+            TRANSFER ANOTHER
+          </button>
+        </>
       )}
 
       <style>{`

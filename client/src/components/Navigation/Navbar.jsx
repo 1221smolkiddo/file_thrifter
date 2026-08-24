@@ -11,6 +11,8 @@ export function Navbar({ appState, sessionData, onDisconnect }) {
         return { text: 'PAIRING', color: 'var(--accent-lime)' };
       case APP_STATE.WEBRTC_CONNECTING:
         return { text: 'SECURING P2P', color: 'var(--accent-lime)' };
+      case APP_STATE.ROLE_SELECTION:
+        return { text: 'CHOOSE MODE', color: 'var(--accent-lime)' };
       case APP_STATE.CONNECTED:
         return { text: 'CONNECTED', color: 'var(--accent-lime)' };
       case APP_STATE.TRANSFERRING:

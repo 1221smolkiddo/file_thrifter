@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UploadCloud, Link as LinkIcon, Zap, ArrowRight } from 'lucide-react';
+import { UploadCloud, Link as LinkIcon, ArrowRight } from 'lucide-react';
 
 export function FileDropArea({ onFileSelected, onTextSend, p2pNotice }) {
   const [activeTab, setActiveTab] = useState('FILES'); // FILES | TEXT | LINK
@@ -10,11 +10,7 @@ export function FileDropArea({ onFileSelected, onTextSend, p2pNotice }) {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      onFileSelected({
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-      });
+      onFileSelected(file);
     }
   };
 
@@ -32,11 +28,7 @@ export function FileDropArea({ onFileSelected, onTextSend, p2pNotice }) {
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      onFileSelected({
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-      });
+      onFileSelected(file);
     }
   };
 
