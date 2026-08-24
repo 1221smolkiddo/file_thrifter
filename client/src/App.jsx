@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { FaultyTerminal } from './components/Background/FaultyTerminal';
 import { Navbar } from './components/Navigation/Navbar';
 import { QRCodeDisplay } from './components/QR/QRCodeDisplay';
@@ -7,6 +7,7 @@ import { FileDropArea } from './components/FileDrop/FileDropArea';
 import { TransferVisualizer } from './components/Transfer/TransferVisualizer';
 import { Home } from './pages/Home';
 import { useWebSocketSession, APP_STATE } from './hooks/useWebSocketSession';
+import { useWebRTC } from './hooks/useWebRTC';
 import { useMockTransfer } from './hooks/useMockTransfer';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -23,7 +24,10 @@ export default function App() {
     sendTransferMeta,
     sendTransferProgress,
     sendTransferComplete,
+    sendWebRtcSignal,
+    setOnWebRtcSignal,
     disconnect,
+    setAppState,
   } = useWebSocketSession();
 
   const { startMockTransfer } = useMockTransfer({
@@ -31,6 +35,74 @@ export default function App() {
     sendTransferProgress,
     sendTransferComplete,
   });
+
+  // ─── WebRTC Integration ───
+
+  const shouldConnectWebRTC = appState === APP_STATE.WEBRTC_CONNECTING || appState === APP_STATE.CONNECTED;
+
+  const handleWebRTCConnected = useCallback(() => {
+    console.log('[THRIFT] WebRTC DataChannel verified — transitioning to CONNECTED');
+    setAppState(APP_STATE.CONNECTED);
+  }, [setAppState]);
+
+  const handleWebRTCDisconnected = useCallback((state) => {
+    console.log('[THRIFT] WebRTC disconnected:', state);
+    // Only transition to disconnected if we were in a WebRTC-active state
+    if ([APP_STATE.WEBRTC_CONNECTING, APP_STATE.CONNECTED, APP_STATE.TRANSFERRING].includes(appState)) {
+      setAppState(APP_STATE.DISCONNECTED);
+    }
+  }, [appState, setAppState]);
+
+  const handleWebRTCMessage = useCallback((data) => {
+    // Future: handle file transfer messages here
+    if (typeof data === 'string') {
+      console.log('[THRIFT] DataChannel message received');
+    }
+  }, []);
+
+  const {
+    rtcState,
+    dataChannelOpen,
+    handleSignal,
+    sendTestMessage,
+    sendData,
+    cleanup: cleanupWebRTC,
+  } = useWebRTC({
+    isHost: sessionData.isHost,
+    iceServers: sessionData.iceServers,
+    sendWsMessage: sendWebRtcSignal,
+    shouldConnect: shouldConnectWebRTC,
+    onConnected: handleWebRTCConnected,
+    onDisconnected: handleWebRTCDisconnected,
+    onMessage: handleWebRTCMessage,
+  });
+
+  // Register the WebRTC signal handler on the WebSocket session
+  useEffect(() => {
+    setOnWebRtcSignal(handleSignal);
+    return () => setOnWebRtcSignal(null);
+  }, [handleSignal, setOnWebRtcSignal]);
+
+  // Expose test function globally in development
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      window.__thriftSendTest = sendTestMessage;
+      window.__thriftRtcState = rtcState;
+      window.__thriftDataChannelOpen = dataChannelOpen;
+      return () => {
+        delete window.__thriftSendTest;
+        delete window.__thriftRtcState;
+        delete window.__thriftDataChannelOpen;
+      };
+    }
+  }, [sendTestMessage, rtcState, dataChannelOpen]);
+
+  // ─── Enhanced disconnect that also cleans up WebRTC ───
+
+  const handleDisconnect = useCallback(() => {
+    cleanupWebRTC();
+    disconnect();
+  }, [cleanupWebRTC, disconnect]);
 
   // Auto-join if URL contains ?session=...&token=...
   useEffect(() => {
@@ -59,7 +131,7 @@ export default function App() {
             appState={appState}
             sessionData={sessionData}
             onCreateSession={createSession}
-            onJoinSession={(token) => joinSession(token)}
+            onJoinSession={(sessionId, token) => joinSession(sessionId, token)}
           />
         );
 
@@ -71,6 +143,18 @@ export default function App() {
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               Verifying session token and establishing peer handshake
+            </p>
+          </div>
+        );
+
+      case APP_STATE.WEBRTC_CONNECTING:
+        return (
+          <div style={{ textAlign: 'center', padding: '4rem 1rem' }} className="mono">
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--accent-lime)' }} className="animate-pulse-glow">
+              ESTABLISHING ENCRYPTED P2P CHANNEL...
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Negotiating WebRTC DataChannel with peer
             </p>
           </div>
         );
@@ -88,7 +172,7 @@ export default function App() {
           <TransferVisualizer
             transferPayload={transferPayload}
             isHost={sessionData.isHost}
-            onBlastAnother={disconnect}
+            onBlastAnother={handleDisconnect}
           />
         );
 
@@ -117,7 +201,7 @@ export default function App() {
               {sessionData.errorMessage || 'The session was terminated or closed by peer. No data traces remain.'}
             </p>
             <button
-              onClick={disconnect}
+              onClick={handleDisconnect}
               style={{
                 background: 'var(--accent-lime)',
                 color: '#08080a',
@@ -148,7 +232,7 @@ export default function App() {
       <Navbar
         appState={appState}
         sessionData={sessionData}
-        onDisconnect={disconnect}
+        onDisconnect={handleDisconnect}
       />
 
       <main style={{

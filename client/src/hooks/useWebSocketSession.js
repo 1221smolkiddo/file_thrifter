@@ -5,6 +5,7 @@ export const APP_STATE = {
   CREATING_SESSION: 'CREATING_SESSION',
   WAITING_FOR_DEVICE: 'WAITING_FOR_DEVICE',
   PAIRING: 'PAIRING',
+  WEBRTC_CONNECTING: 'WEBRTC_CONNECTING',
   CONNECTED: 'CONNECTED',
   TRANSFERRING: 'TRANSFERRING',
   COMPLETED: 'COMPLETED',
@@ -27,6 +28,7 @@ export function useWebSocketSession() {
   const [transferPayload, setTransferPayload] = useState(null); // Metadata & incoming progress
 
   const wsRef = useRef(null);
+  const onWebRtcSignalRef = useRef(null);
 
   // Initialize WS connection
   const connectWs = useCallback(() => {
@@ -77,14 +79,14 @@ export function useWebSocketSession() {
             break;
           }
 
-          // New protocol: SESSION_CONNECTED (was 'CONNECTED')
+          // New protocol: SESSION_CONNECTED — triggers WebRTC negotiation
           case 'SESSION_CONNECTED': {
             setIncomingRequest(false);
             setSessionData((prev) => ({
               ...prev,
               iceServers: msg.iceServers || null,
             }));
-            setAppState(APP_STATE.CONNECTED);
+            setAppState(APP_STATE.WEBRTC_CONNECTING);
             break;
           }
 
@@ -115,8 +117,9 @@ export function useWebSocketSession() {
           }
 
           case 'WEBRTC_SIGNAL': {
-            // WebRTC signaling will be handled when DataChannel transfer is implemented
-            console.log('[THRIFT] Received WebRTC signal (not yet handled by client)');
+            if (onWebRtcSignalRef.current) {
+              onWebRtcSignalRef.current(msg.payload);
+            }
             break;
           }
 
@@ -229,6 +232,14 @@ export function useWebSocketSession() {
     send({ type: 'JOIN_SESSION', sessionId, token });
   }, []);
 
+  const sendWebRtcSignal = useCallback((signalMsg) => {
+    send(signalMsg);
+  }, []);
+
+  const setOnWebRtcSignal = useCallback((handler) => {
+    onWebRtcSignalRef.current = handler;
+  }, []);
+
   const acceptConnection = useCallback(() => {
     send({ type: 'ACCEPT_CONNECTION' });
   }, []);
@@ -305,6 +316,8 @@ export function useWebSocketSession() {
     sendTransferMeta,
     sendTransferProgress,
     sendTransferComplete,
+    sendWebRtcSignal,
+    setOnWebRtcSignal,
     disconnect,
     setAppState,
   };
