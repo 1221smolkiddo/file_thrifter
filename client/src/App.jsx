@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { FaultyTerminal } from './components/Background/FaultyTerminal';
 import { Navbar } from './components/Navigation/Navbar';
 import { QRCodeDisplay } from './components/QR/QRCodeDisplay';
@@ -9,6 +9,8 @@ import { Home } from './pages/Home';
 import { useWebSocketSession, APP_STATE } from './hooks/useWebSocketSession';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useMockTransfer } from './hooks/useMockTransfer';
+import { DATA_MESSAGE_TYPE } from './lib/webrtc/constants';
+import { parseDataMessage } from './lib/webrtc/messages';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -16,29 +18,69 @@ export default function App() {
     appState,
     sessionData,
     incomingRequest,
-    transferPayload,
     createSession,
     joinSession,
     acceptConnection,
     rejectConnection,
-    sendTransferMeta,
-    sendTransferProgress,
-    sendTransferComplete,
     sendWebRtcSignal,
     setOnWebRtcSignal,
     disconnect,
     setAppState,
   } = useWebSocketSession();
 
+  const [transferPayload, setTransferPayload] = useState(null);
+  const [p2pNotice, setP2pNotice] = useState('');
+
+  const beginLocalMockTransfer = useCallback((fileInfo) => {
+    setTransferPayload({
+      fileInfo,
+      transferredBytes: 0,
+      totalBytes: fileInfo.size,
+      percentage: 0,
+      speedBps: 0,
+      speedMbps: '0.0',
+      status: 'SENDING',
+    });
+    setAppState(APP_STATE.TRANSFERRING);
+  }, [setAppState]);
+
+  const updateLocalMockTransfer = useCallback((transferredBytes, totalBytes, speedBps) => {
+    setTransferPayload((previous) => ({
+      ...previous,
+      transferredBytes,
+      totalBytes,
+      percentage: Math.min(100, Math.round((transferredBytes / totalBytes) * 100)),
+      speedBps,
+      speedMbps: (speedBps / (1024 * 1024)).toFixed(1),
+      status: 'SENDING',
+    }));
+  }, []);
+
+  const completeLocalMockTransfer = useCallback(() => {
+    setTransferPayload((previous) => ({
+      ...previous,
+      percentage: 100,
+      status: 'COMPLETED',
+    }));
+    setAppState(APP_STATE.COMPLETED);
+  }, [setAppState]);
+
   const { startMockTransfer } = useMockTransfer({
-    sendTransferMeta,
-    sendTransferProgress,
-    sendTransferComplete,
+    onStart: beginLocalMockTransfer,
+    onProgress: updateLocalMockTransfer,
+    onComplete: completeLocalMockTransfer,
   });
 
   // ─── WebRTC Integration ───
 
-  const shouldConnectWebRTC = appState === APP_STATE.WEBRTC_CONNECTING || appState === APP_STATE.CONNECTED;
+  // The transfer views are still part of the same P2P session. Do not tear
+  // down the DataChannel merely because the UI advances past CONNECTED.
+  const shouldConnectWebRTC = [
+    APP_STATE.WEBRTC_CONNECTING,
+    APP_STATE.CONNECTED,
+    APP_STATE.TRANSFERRING,
+    APP_STATE.COMPLETED,
+  ].includes(appState);
 
   const handleWebRTCConnected = useCallback(() => {
     console.log('[THRIFT] WebRTC DataChannel verified — transitioning to CONNECTED');
@@ -53,19 +95,41 @@ export default function App() {
     }
   }, [appState, setAppState]);
 
+  const showCompletedText = useCallback((text, status) => {
+    const size = new TextEncoder().encode(text).byteLength;
+    setTransferPayload({
+      fileInfo: {
+        name: 'pasted_text.txt',
+        size,
+        type: 'text/plain',
+        content: text,
+      },
+      transferredBytes: size,
+      totalBytes: size,
+      percentage: 100,
+      speedBps: 0,
+      speedMbps: '0.0',
+      status,
+    });
+    setAppState(APP_STATE.COMPLETED);
+  }, [setAppState]);
+
   const handleWebRTCMessage = useCallback((data) => {
-    // Future: handle file transfer messages here
-    if (typeof data === 'string') {
-      console.log('[THRIFT] DataChannel message received');
+    const message = parseDataMessage(data);
+    if (!message) return;
+
+    if (message.type === DATA_MESSAGE_TYPE.TEXT) {
+      console.log('[THRIFT] Text received through DataChannel');
+      showCompletedText(message.payload, 'RECEIVING');
     }
-  }, []);
+  }, [showCompletedText]);
 
   const {
     rtcState,
     dataChannelOpen,
     handleSignal,
     sendTestMessage,
-    sendData,
+    sendText,
     cleanup: cleanupWebRTC,
   } = useWebRTC({
     isHost: sessionData.isHost,
@@ -118,8 +182,24 @@ export default function App() {
   }, [appState, joinSession]);
 
   const handleFileSelected = (fileInfo) => {
+    if (!dataChannelOpen) {
+      setP2pNotice('P2P connection not ready.');
+      return;
+    }
+    setP2pNotice('');
     startMockTransfer(fileInfo);
   };
+
+  const handleTextSend = useCallback((text) => {
+    if (!dataChannelOpen || !sendText(text)) {
+      setP2pNotice('P2P connection not ready.');
+      return false;
+    }
+
+    setP2pNotice('');
+    showCompletedText(text, 'SENDING');
+    return true;
+  }, [dataChannelOpen, sendText, showCompletedText]);
 
   const renderContent = () => {
     switch (appState) {
@@ -162,7 +242,11 @@ export default function App() {
       case APP_STATE.CONNECTED:
         return (
           <div style={{ width: '100%', padding: '1rem 0' }}>
-            <FileDropArea onFileSelected={handleFileSelected} />
+            <FileDropArea
+              onFileSelected={handleFileSelected}
+              onTextSend={handleTextSend}
+              p2pNotice={p2pNotice}
+            />
           </div>
         );
 

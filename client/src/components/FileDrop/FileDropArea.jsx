@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UploadCloud, Link as LinkIcon, Zap, ArrowRight } from 'lucide-react';
 
-export function FileDropArea({ onFileSelected }) {
+export function FileDropArea({ onFileSelected, onTextSend, p2pNotice }) {
   const [activeTab, setActiveTab] = useState('FILES'); // FILES | TEXT | LINK
   const [textInput, setTextInput] = useState('');
   const [linkInput, setLinkInput] = useState('');
@@ -43,25 +43,17 @@ export function FileDropArea({ onFileSelected }) {
   const handleBlastText = (e) => {
     e.preventDefault();
     if (!textInput.trim()) return;
-    const textBlobSize = new Blob([textInput]).size;
-    onFileSelected({
-      name: 'pasted_text.txt',
-      size: textBlobSize,
-      type: 'text/plain',
-      content: textInput,
-    });
+    if (onTextSend(textInput)) {
+      setTextInput('');
+    }
   };
 
   const handleBlastLink = (e) => {
     e.preventDefault();
     if (!linkInput.trim()) return;
-    const linkSize = new Blob([linkInput]).size;
-    onFileSelected({
-      name: 'shared_link.url',
-      size: linkSize,
-      type: 'text/uri-list',
-      content: linkInput,
-    });
+    if (onTextSend(linkInput)) {
+      setLinkInput('');
+    }
   };
 
   return (
@@ -99,6 +91,12 @@ export function FileDropArea({ onFileSelected }) {
           </button>
         ))}
       </div>
+
+      {p2pNotice && (
+        <p role="alert" style={{ margin: 0, color: 'var(--accent-red)', fontSize: '0.8rem' }} className="mono">
+          {p2pNotice}
+        </p>
+      )}
 
       {/* Tab 1: FILES */}
       {activeTab === 'FILES' && (

@@ -1,14 +1,15 @@
 import { useState, useRef, useCallback } from 'react';
 
-export function useMockTransfer({ sendTransferMeta, sendTransferProgress, sendTransferComplete }) {
+export function useMockTransfer({ onStart, onProgress, onComplete }) {
   const [isTransferring, setIsTransferring] = useState(false);
   const timerRef = useRef(null);
 
   const startMockTransfer = useCallback((fileInfo) => {
     setIsTransferring(true);
 
-    // Notify peer via WS session hook about transfer metadata
-    sendTransferMeta(fileInfo);
+    // This visual-only mock is intentionally local. Real files will use the
+    // DataChannel protocol once FILE_CHUNK support is implemented.
+    onStart(fileInfo);
 
     const totalBytes = fileInfo.size;
     let transferred = 0;
@@ -36,19 +37,19 @@ export function useMockTransfer({ sendTransferMeta, sendTransferProgress, sendTr
       lastProgressTime = now;
       lastTransferred = transferred;
 
-      sendTransferProgress(transferred, totalBytes, instantSpeedBps);
+      onProgress(transferred, totalBytes, instantSpeedBps);
 
       if (transferred >= totalBytes) {
         clearInterval(timerRef.current);
         timerRef.current = null;
         setIsTransferring(false);
-        sendTransferComplete();
+        onComplete();
       }
     };
 
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(tick, 50);
-  }, [sendTransferMeta, sendTransferProgress, sendTransferComplete]);
+  }, [onStart, onProgress, onComplete]);
 
   const cancelTransfer = useCallback(() => {
     if (timerRef.current) {

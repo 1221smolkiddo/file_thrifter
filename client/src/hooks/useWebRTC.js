@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { createPeerConnection } from '../lib/webrtc/createPeerConnection.js';
 import { RTC_STATE } from '../lib/webrtc/constants.js';
+import { createTextMessage } from '../lib/webrtc/messages.js';
 
 /**
  * useWebRTC — Manages a WebRTC DataChannel connection.
@@ -165,6 +166,13 @@ export function useWebRTC({
     return false;
   }, []);
 
+  // ─── Send text through the DataChannel (never via WebSocket) ───
+
+  const sendText = useCallback((text) => {
+    if (typeof text !== 'string') return false;
+    return sendData(createTextMessage(text));
+  }, [sendData]);
+
   // ─── Clean up the connection ───
 
   const cleanup = useCallback(() => {
@@ -183,6 +191,7 @@ export function useWebRTC({
     handleSignal,
     sendTestMessage,
     sendData,
+    sendText,
     cleanup,
   };
 }

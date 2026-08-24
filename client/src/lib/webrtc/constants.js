@@ -34,3 +34,16 @@ export const HANDSHAKE = {
   REQUEST: 'THRIFT_HANDSHAKE',
   ACK: 'THRIFT_HANDSHAKE_ACK',
 };
+
+/**
+ * Application messages carried exclusively by the WebRTC DataChannel.
+ * File message types are reserved for the forthcoming transfer engine.
+ */
+export const DATA_MESSAGE_TYPE = {
+  TEXT: 'TEXT',
+  TEST: 'TEST',
+  FILE_OFFER: 'FILE_OFFER',
+  FILE_CHUNK: 'FILE_CHUNK',
+  FILE_COMPLETE: 'FILE_COMPLETE',
+  TRANSFER_ACK: 'TRANSFER_ACK',
+};

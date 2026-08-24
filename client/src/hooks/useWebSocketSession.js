@@ -25,8 +25,6 @@ export function useWebSocketSession() {
     iceServers: null,
   });
   const [incomingRequest, setIncomingRequest] = useState(false);
-  const [transferPayload, setTransferPayload] = useState(null); // Metadata & incoming progress
-
   const wsRef = useRef(null);
   const onWebRtcSignalRef = useRef(null);
 
@@ -123,47 +121,6 @@ export function useWebSocketSession() {
             break;
           }
 
-          case 'TRANSFER_META': {
-            setTransferPayload({
-              fileInfo: msg.fileInfo,
-              transferredBytes: 0,
-              totalBytes: msg.fileInfo.size,
-              percentage: 0,
-              speedBps: 0,
-              speedMbps: '0.0',
-              status: 'RECEIVING',
-            });
-            setAppState(APP_STATE.TRANSFERRING);
-            break;
-          }
-
-          case 'TRANSFER_PROGRESS': {
-            setTransferPayload((prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                transferredBytes: msg.transferredBytes,
-                totalBytes: msg.totalBytes,
-                percentage: Math.min(100, Math.round((msg.transferredBytes / msg.totalBytes) * 100)),
-                speedBps: msg.speedBps,
-                speedMbps: (msg.speedBps / (1024 * 1024)).toFixed(1),
-                status: 'RECEIVING',
-              };
-            });
-            break;
-          }
-
-          case 'TRANSFER_COMPLETE': {
-            setTransferPayload((prev) => ({
-              ...prev,
-              transferredBytes: prev ? prev.totalBytes : 0,
-              percentage: 100,
-              status: 'COMPLETED',
-            }));
-            setAppState(APP_STATE.COMPLETED);
-            break;
-          }
-
           case 'ERROR': {
             setAppState(APP_STATE.ERROR);
             setSessionData((prev) => ({ ...prev, errorMessage: msg.message }));
@@ -250,43 +207,6 @@ export function useWebSocketSession() {
     setAppState(APP_STATE.WAITING_FOR_DEVICE);
   }, []);
 
-  const sendTransferMeta = useCallback((fileInfo) => {
-    send({ type: 'TRANSFER_META', fileInfo });
-    setTransferPayload({
-      fileInfo,
-      transferredBytes: 0,
-      totalBytes: fileInfo.size,
-      percentage: 0,
-      speedBps: 0,
-      speedMbps: '0.0',
-      status: 'SENDING',
-    });
-    setAppState(APP_STATE.TRANSFERRING);
-  }, []);
-
-  const sendTransferProgress = useCallback((transferredBytes, totalBytes, speedBps) => {
-    send({ type: 'TRANSFER_PROGRESS', transferredBytes, totalBytes, speedBps });
-    setTransferPayload((prev) => ({
-      ...prev,
-      transferredBytes,
-      totalBytes,
-      percentage: Math.min(100, Math.round((transferredBytes / totalBytes) * 100)),
-      speedBps,
-      speedMbps: (speedBps / (1024 * 1024)).toFixed(1),
-      status: 'SENDING',
-    }));
-  }, []);
-
-  const sendTransferComplete = useCallback(() => {
-    send({ type: 'TRANSFER_COMPLETE' });
-    setTransferPayload((prev) => ({
-      ...prev,
-      percentage: 100,
-      status: 'COMPLETED',
-    }));
-    setAppState(APP_STATE.COMPLETED);
-  }, []);
-
   const disconnect = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close();
@@ -301,21 +221,16 @@ export function useWebSocketSession() {
       iceServers: null,
     });
     setIncomingRequest(false);
-    setTransferPayload(null);
   }, []);
 
   return {
     appState,
     sessionData,
     incomingRequest,
-    transferPayload,
     createSession,
     joinSession,
     acceptConnection,
     rejectConnection,
-    sendTransferMeta,
-    sendTransferProgress,
-    sendTransferComplete,
     sendWebRtcSignal,
     setOnWebRtcSignal,
     disconnect,

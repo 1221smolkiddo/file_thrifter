@@ -232,6 +232,21 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
               ) : `SPEED: ${speedMbps} MB/s`}
             </span>
           </div>
+
+          {fileInfo.content && (
+            <pre style={{
+              margin: 0,
+              padding: '0.85rem',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--bg-surface-border)',
+              color: 'var(--text-primary)',
+              fontSize: '0.8rem',
+            }} className="mono">
+              {fileInfo.content}
+            </pre>
+          )}
         </div>
       </div>
 
