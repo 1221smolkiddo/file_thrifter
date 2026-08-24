@@ -53,6 +53,9 @@ class SessionManager {
       state: SESSION_STATE.WAITING,
       createdAt: now,
       expiresAt,
+      connectedAt: null,
+      lastActivityAt: now,
+      timeoutKind: 'unpaired',
       expirationTimer: setTimeout(() => this.expireSession(displayId), config.SESSION_TTL_MS),
     };
 
@@ -130,6 +133,8 @@ class SessionManager {
     if (!session.guestWs) return false;
 
     session.state = SESSION_STATE.CONNECTED;
+    session.connectedAt = Date.now();
+    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
     logger.session('PAIRING_ACCEPTED', displayId);
 
     const payload = JSON.stringify({
@@ -145,6 +150,21 @@ class SessionManager {
       session.guestWs.send(payload);
     }
 
+    return true;
+  }
+
+  /**
+   * Record control-plane activity for a connected session. User data remains
+   * on the WebRTC DataChannel and never reaches this server.
+   */
+  touchSession(ws) {
+    const binding = this.socketToSession.get(ws);
+    if (!binding) return false;
+
+    const session = this.sessions.get(binding.displayId);
+    if (!session || session.state !== SESSION_STATE.CONNECTED) return false;
+
+    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
     return true;
   }
 
@@ -188,6 +208,8 @@ class SessionManager {
     const session = this.sessions.get(binding.displayId);
     if (!session) return false;
     if (session.state !== SESSION_STATE.CONNECTED) return false;
+
+    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
 
     // Determine the target peer
     const targetWs = binding.role === 'host' ? session.guestWs : session.hostWs;
@@ -234,10 +256,11 @@ class SessionManager {
     const session = this.sessions.get(displayId);
     if (!session) return;
 
-    logger.session('SESSION_EXPIRED', displayId);
+    const timedOut = session.timeoutKind === 'inactive';
+    logger.session(timedOut ? 'SESSION_TIMED_OUT' : 'SESSION_EXPIRED', displayId);
 
     session.state = SESSION_STATE.EXPIRED;
-    const message = JSON.stringify({ type: 'SESSION_EXPIRED' });
+    const message = JSON.stringify({ type: timedOut ? 'SESSION_TIMED_OUT' : 'SESSION_EXPIRED' });
 
     if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
       session.hostWs.send(message);
@@ -271,6 +294,15 @@ class SessionManager {
 
     // Delete the session
     this.sessions.delete(displayId);
+  }
+
+  _setSessionExpiry(session, timeoutMs, timeoutKind) {
+    if (session.expirationTimer) clearTimeout(session.expirationTimer);
+
+    session.lastActivityAt = Date.now();
+    session.expiresAt = session.lastActivityAt + timeoutMs;
+    session.timeoutKind = timeoutKind;
+    session.expirationTimer = setTimeout(() => this.expireSession(session.displayId), timeoutMs);
   }
 
   /**

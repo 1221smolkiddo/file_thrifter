@@ -10,7 +10,9 @@ export const APP_STATE = {
   CONNECTED: 'CONNECTED',
   TRANSFERRING: 'TRANSFERRING',
   COMPLETED: 'COMPLETED',
+  TRANSFER_ERROR: 'TRANSFER_ERROR',
   DISCONNECTED: 'DISCONNECTED',
+  TIMED_OUT: 'TIMED_OUT',
   EXPIRED: 'EXPIRED',
   ERROR: 'ERROR',
 };
@@ -110,6 +112,15 @@ export function useWebSocketSession() {
             break;
           }
 
+          case 'SESSION_TIMED_OUT': {
+            setAppState(APP_STATE.TIMED_OUT);
+            setSessionData((prev) => ({
+              ...prev,
+              errorMessage: 'Connection timed out after 5 minutes of inactivity.',
+            }));
+            break;
+          }
+
           case 'PEER_DISCONNECTED': {
             setAppState(APP_STATE.DISCONNECTED);
             break;
@@ -194,6 +205,10 @@ export function useWebSocketSession() {
     send(signalMsg);
   }, []);
 
+  const sendKeepAlive = useCallback(() => {
+    send({ type: 'PING' });
+  }, []);
+
   const setOnWebRtcSignal = useCallback((handler) => {
     onWebRtcSignalRef.current = handler;
   }, []);
@@ -233,6 +248,7 @@ export function useWebSocketSession() {
     acceptConnection,
     rejectConnection,
     sendWebRtcSignal,
+    sendKeepAlive,
     setOnWebRtcSignal,
     disconnect,
     setAppState,

@@ -8,7 +8,7 @@ import { Home } from './pages/Home';
 import { useWebSocketSession, APP_STATE } from './hooks/useWebSocketSession';
 import { useWebRTC } from './hooks/useWebRTC';
 import { DATA_MESSAGE_TYPE } from './lib/webrtc/constants';
-import { createRoleMessage, parseDataMessage } from './lib/webrtc/messages';
+import { createRoleMessage, createTransferAckMessage, parseDataMessage } from './lib/webrtc/messages';
 import { AlertTriangle, Inbox, RefreshCw, Send } from 'lucide-react';
 
 export default function App() {
@@ -21,6 +21,7 @@ export default function App() {
     acceptConnection,
     rejectConnection,
     sendWebRtcSignal,
+    sendKeepAlive,
     setOnWebRtcSignal,
     disconnect,
     setAppState,
@@ -31,6 +32,7 @@ export default function App() {
   const [transferRole, setTransferRole] = useState(null);
   const incomingFileRef = useRef(null);
   const downloadUrlRef = useRef(null);
+  const sendDataRef = useRef(null);
 
   const beginFileTransfer = useCallback((fileInfo) => {
     setTransferPayload({
@@ -61,9 +63,18 @@ export default function App() {
     setTransferPayload((previous) => ({
       ...previous,
       percentage: 100,
-      status: 'COMPLETED',
+      status: 'SENT',
     }));
     setAppState(APP_STATE.COMPLETED);
+  }, [setAppState]);
+
+  const showTransferError = useCallback((errorMessage) => {
+    setTransferPayload((previous) => ({
+      ...previous,
+      status: 'ERROR',
+      errorMessage,
+    }));
+    setAppState(APP_STATE.TRANSFER_ERROR);
   }, [setAppState]);
 
   // ─── WebRTC Integration ───
@@ -86,10 +97,17 @@ export default function App() {
   const handleWebRTCDisconnected = useCallback((state) => {
     console.log('[THRIFT] WebRTC disconnected:', state);
     // Only transition to disconnected if we were in a WebRTC-active state
-    if ([APP_STATE.WEBRTC_CONNECTING, APP_STATE.ROLE_SELECTION, APP_STATE.CONNECTED, APP_STATE.TRANSFERRING, APP_STATE.COMPLETED].includes(appState)) {
+    if (appState === APP_STATE.TRANSFERRING) {
+      showTransferError('P2P connection closed before the file transfer completed.');
+    } else if ([APP_STATE.WEBRTC_CONNECTING, APP_STATE.ROLE_SELECTION, APP_STATE.CONNECTED, APP_STATE.COMPLETED].includes(appState)) {
       setAppState(APP_STATE.DISCONNECTED);
     }
-  }, [appState, setAppState]);
+  }, [appState, setAppState, showTransferError]);
+
+  const handleWebRTCError = useCallback((error) => {
+    const message = error instanceof Error ? error.message : 'The P2P connection reported an error.';
+    showTransferError(message);
+  }, [showTransferError]);
 
   const showCompletedText = useCallback((text, status) => {
     const size = new TextEncoder().encode(text).byteLength;
@@ -132,7 +150,7 @@ export default function App() {
     switch (message.type) {
       case DATA_MESSAGE_TYPE.TEXT:
         console.log('[THRIFT] Text received through DataChannel');
-        showCompletedText(message.payload, 'RECEIVING');
+        showCompletedText(message.payload, 'RECEIVED');
         break;
       case DATA_MESSAGE_TYPE.ROLE: {
         const assignedRole = message.payload.role === 'SENDER' ? 'RECEIVER' : 'SENDER';
@@ -182,16 +200,27 @@ export default function App() {
           ...previous,
           transferredBytes: incoming.transferredBytes,
           percentage: 100,
-          status: 'COMPLETED',
+          status: 'RECEIVED',
           downloadUrl,
         }));
+        if (!sendDataRef.current?.(createTransferAckMessage(message.id))) {
+          showTransferError('The file arrived, but the sender could not be notified.');
+          return;
+        }
         setAppState(APP_STATE.COMPLETED);
         break;
       }
+      case DATA_MESSAGE_TYPE.TRANSFER_ACK:
+        setTransferPayload((previous) => {
+          if (!previous?.fileInfo?.id || previous.fileInfo.id !== message.id) return previous;
+          return { ...previous, status: 'SENT', percentage: 100 };
+        });
+        completeFileTransfer();
+        break;
       default:
         break;
     }
-  }, [sessionData.isHost, showCompletedText, setAppState]);
+  }, [completeFileTransfer, sessionData.isHost, showCompletedText, showTransferError, setAppState]);
 
   const {
     rtcState,
@@ -210,7 +239,22 @@ export default function App() {
     onConnected: handleWebRTCConnected,
     onDisconnected: handleWebRTCDisconnected,
     onMessage: handleWebRTCMessage,
+    onError: handleWebRTCError,
   });
+
+  useEffect(() => {
+    sendDataRef.current = sendData;
+  }, [sendData]);
+
+  // Transfers are P2P, but a control-only keep-alive prevents the signaling
+  // session's inactivity timer from expiring while either peer is busy.
+  useEffect(() => {
+    if (appState !== APP_STATE.TRANSFERRING) return undefined;
+
+    sendKeepAlive();
+    const interval = setInterval(sendKeepAlive, 60_000);
+    return () => clearInterval(interval);
+  }, [appState, sendKeepAlive]);
 
   // Register the WebRTC signal handler on the WebSocket session
   useEffect(() => {
@@ -273,14 +317,13 @@ export default function App() {
     const sent = await sendFile(file, {
       onStart: beginFileTransfer,
       onProgress: updateFileTransfer,
-      onComplete: completeFileTransfer,
+      onError: (error) => showTransferError(error.message),
     });
 
     if (!sent) {
-      setP2pNotice('File transfer stopped because the P2P connection is no longer ready.');
-      setAppState(APP_STATE.CONNECTED);
+      showTransferError('File transfer could not be completed over the P2P connection.');
     }
-  }, [beginFileTransfer, completeFileTransfer, dataChannelOpen, sendFile, setAppState, transferRole, updateFileTransfer]);
+  }, [beginFileTransfer, dataChannelOpen, sendFile, showTransferError, transferRole, updateFileTransfer]);
 
   const handleTextSend = useCallback((text) => {
     if (transferRole !== 'SENDER' || !dataChannelOpen || !sendText(text)) {
@@ -289,7 +332,7 @@ export default function App() {
     }
 
     setP2pNotice('');
-    showCompletedText(text, 'SENDING');
+    showCompletedText(text, 'SENT');
     return true;
   }, [dataChannelOpen, sendText, showCompletedText, transferRole]);
 
@@ -383,6 +426,7 @@ export default function App() {
 
       case APP_STATE.TRANSFERRING:
       case APP_STATE.COMPLETED:
+      case APP_STATE.TRANSFER_ERROR:
         return (
           <TransferVisualizer
             transferPayload={transferPayload}
@@ -392,6 +436,7 @@ export default function App() {
         );
 
       case APP_STATE.EXPIRED:
+      case APP_STATE.TIMED_OUT:
       case APP_STATE.DISCONNECTED:
       case APP_STATE.ERROR:
         return (
@@ -410,7 +455,7 @@ export default function App() {
           }}>
             <AlertTriangle size={40} style={{ color: 'var(--accent-red)' }} />
             <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>
-              {appState === APP_STATE.EXPIRED ? 'SESSION EXPIRED' : 'CONNECTION CLOSED'}
+              {appState === APP_STATE.EXPIRED ? 'SESSION EXPIRED' : appState === APP_STATE.TIMED_OUT ? 'CONNECTION TIMED OUT' : 'CONNECTION CLOSED'}
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               {sessionData.errorMessage || 'The session was terminated or closed by peer. No data traces remain.'}

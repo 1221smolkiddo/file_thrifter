@@ -10,8 +10,12 @@ const config = {
   // In production: set to the actual deployed frontend URL
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
 
-  // Session lifetime in milliseconds (default: 10 minutes)
+  // Lifetime for an unpaired QR session (default: 10 minutes)
   SESSION_TTL_MS: parseInt(process.env.SESSION_TTL_MS, 10) || 10 * 60 * 1000,
+
+  // Once paired, end an inactive connection after five minutes. Transfers send
+  // control-only keep-alives and therefore are never cut off by this timer.
+  SESSION_IDLE_TIMEOUT_MS: parseInt(process.env.SESSION_IDLE_TIMEOUT_MS, 10) || 5 * 60 * 1000,
 
   // Session cleanup interval (how often we sweep for expired sessions)
   SESSION_CLEANUP_INTERVAL_MS: parseInt(process.env.SESSION_CLEANUP_INTERVAL_MS, 10) || 15_000,

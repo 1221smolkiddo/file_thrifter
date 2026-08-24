@@ -19,7 +19,10 @@ export function Navbar({ appState, sessionData, onDisconnect }) {
         return { text: 'TRANSFERRING', color: 'var(--accent-lime)' };
       case APP_STATE.COMPLETED:
         return { text: 'COMPLETED', color: 'var(--accent-lime)' };
+      case APP_STATE.TRANSFER_ERROR:
+        return { text: 'TRANSFER ERROR', color: 'var(--accent-red)' };
       case APP_STATE.EXPIRED:
+      case APP_STATE.TIMED_OUT:
       case APP_STATE.ERROR:
         return { text: 'DISCONNECTED', color: 'var(--text-muted)' };
       default:

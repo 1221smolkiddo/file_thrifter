@@ -12,6 +12,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
     speedMbps = '0.0',
     status = 'TRANSFERRING',
     downloadUrl,
+    errorMessage,
   } = transferPayload || {};
 
   const formatSize = (bytes) => {
@@ -22,8 +23,12 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
     return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
   };
 
-  const isCompleted = status === 'COMPLETED' || percentage >= 100;
-  const isSender = status === 'SENDING' || (isHost && status !== 'RECEIVING');
+  const isError = status === 'ERROR';
+  const isCompleted = ['COMPLETED', 'SENT', 'RECEIVED'].includes(status);
+  const isSender = ['SENDING', 'SENT'].includes(status);
+  const resultLabel = status === 'SENT' ? 'FILE SENT SUCCESSFULLY'
+    : status === 'RECEIVED' ? 'FILE RECEIVED SUCCESSFULLY'
+      : isError ? 'TRANSFER FAILED' : null;
 
   const animDuration = Math.max(0.4, 2.5 - Math.min(2.0, parseFloat(speedMbps) / 20));
 
@@ -39,7 +44,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
       
       <div style={{
         background: 'var(--bg-surface)',
-        border: `1px solid ${isCompleted ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
+        border: `1px solid ${isError ? 'var(--accent-red)' : isCompleted ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
         borderRadius: '4px',
         padding: '2rem 1.5rem',
         position: 'relative',
@@ -113,7 +118,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
                 x1="0" y1="50%" x2="100%" y2="50%"
                 stroke="var(--bg-surface-border)" strokeWidth="3" strokeDasharray="4 4"
               />
-              {!isCompleted && (
+              {!isCompleted && !isError && (
                 <line
                   x1="0" y1="50%" x2="100%" y2="50%"
                   stroke="var(--accent-lime)" strokeWidth="3" strokeDasharray="12 12"
@@ -128,7 +133,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
               )}
             </svg>
 
-            {!isCompleted && (
+            {!isCompleted && !isError && (
               <div style={{
                 position: 'absolute',
                 top: '-18px',
@@ -193,7 +198,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
               <span style={{
                 fontSize: '1.75rem',
                 fontWeight: 800,
-                color: isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
+                color: isError ? 'var(--accent-red)' : isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
               }}>
                 {percentage}%
               </span>
@@ -212,7 +217,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
             <div style={{
               width: `${percentage}%`,
               height: '100%',
-              background: isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
+              background: isError ? 'var(--accent-red)' : isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
               transition: 'width 0.1s linear',
               boxShadow: isCompleted ? 'none' : '0 0 12px var(--accent-lime-glow)',
             }} />
@@ -226,13 +231,15 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
           }} className="mono">
             <span>{formatSize(transferredBytes)} / {formatSize(totalBytes)}</span>
             <span>
-              {isCompleted ? (
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <CheckCircle2 size={14} /> COMPLETE
+              {resultLabel ? (
+                <span style={{ color: isError ? 'var(--accent-red)' : 'var(--text-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  {!isError && <CheckCircle2 size={14} />} {resultLabel}
                 </span>
               ) : `SPEED: ${speedMbps} MB/s`}
             </span>
           </div>
+
+          {isError && <p role="alert" style={{ margin: 0, color: 'var(--accent-red)', fontSize: '0.8rem' }} className="mono">{errorMessage || 'The transfer could not be completed.'}</p>}
 
           {fileInfo.content && (
             <pre style={{
@@ -251,7 +258,7 @@ export function TransferVisualizer({ transferPayload, isHost, onBlastAnother }) 
         </div>
       </div>
 
-      {isCompleted && (
+      {(isCompleted || isError) && (
         <>
           {downloadUrl && (
             <a

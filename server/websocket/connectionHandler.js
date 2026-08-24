@@ -65,6 +65,7 @@ export function createConnectionHandler(ws, sessionManager, clientIp) {
           break;
 
         case CLIENT_MSG.PING:
+          sessionManager.touchSession(ws);
           ws.send(JSON.stringify({ type: SERVER_MSG.PONG }));
           break;
 

@@ -26,6 +26,7 @@ const MAX_BUFFERED_BYTES = 512 * 1024;
  * @param {function} [options.onConnected] - Called when DataChannel is verified open
  * @param {function} [options.onDisconnected] - Called when DataChannel/peer connection is lost
  * @param {function} [options.onMessage] - Called when a message is received through DataChannel
+ * @param {function} [options.onError] - Called when WebRTC or DataChannel reports an error
  *
  * @returns {object} WebRTC state and controls
  */
@@ -37,6 +38,7 @@ export function useWebRTC({
   onConnected,
   onDisconnected,
   onMessage,
+  onError,
 }) {
   const [rtcState, setRtcState] = useState(RTC_STATE.NEW);
   const [dataChannelOpen, setDataChannelOpen] = useState(false);
@@ -48,11 +50,13 @@ export function useWebRTC({
   const onConnectedRef = useRef(onConnected);
   const onDisconnectedRef = useRef(onDisconnected);
   const onMessageRef = useRef(onMessage);
+  const onErrorRef = useRef(onError);
   const sendWsMessageRef = useRef(sendWsMessage);
 
   useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
   useEffect(() => { onDisconnectedRef.current = onDisconnected; }, [onDisconnected]);
   useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
   useEffect(() => { sendWsMessageRef.current = sendWsMessage; }, [sendWsMessage]);
 
   // ─── Initialize WebRTC connection ───
@@ -127,6 +131,7 @@ export function useWebRTC({
       },
       onError: (err) => {
         console.error('[THRIFT:RTC] Error:', err);
+        onErrorRef.current?.(err);
       },
     });
 
@@ -182,7 +187,7 @@ export function useWebRTC({
 
   // ─── Send a file as ordered binary chunks through the DataChannel ───
 
-  const sendFile = useCallback(async (file, { onStart, onProgress, onComplete } = {}) => {
+  const sendFile = useCallback(async (file, { onStart, onProgress, onError } = {}) => {
     const peer = peerRef.current;
     const channel = peer?.dataChannel;
 
@@ -214,10 +219,10 @@ export function useWebRTC({
       }
 
       channel.send(createFileCompleteMessage(id));
-      onComplete?.();
       return true;
     } catch (error) {
       console.error('[THRIFT:RTC] File transfer failed:', error);
+      onError?.(error);
       return false;
     }
   }, []);
