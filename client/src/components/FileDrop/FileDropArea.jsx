@@ -19,7 +19,9 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
   const dragCounterRef = useRef(0);
 
   const addFilesToStage = (newFiles) => {
-    const valid = Array.from(newFiles).filter((f) => f && typeof f.slice === 'function');
+    if (!newFiles) return;
+    const list = Array.isArray(newFiles) ? newFiles : Array.from(newFiles);
+    const valid = list.filter((f) => f && (f instanceof Blob || (typeof f.size === 'number' && typeof f.name === 'string')));
     if (valid.length === 0) return;
     setStagedFiles((prev) => [...prev, ...valid]);
   };
@@ -74,58 +76,114 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
     }
   };
 
-  // ─── Smart Clipboard Paste (Ctrl+V / Cmd+V) ───
+  // ─── Robust Smart Clipboard Paste (Ctrl+V / Cmd+V) ───
 
   useEffect(() => {
     const handlePaste = (e) => {
       const target = e.target;
-      const isInputFocused = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const isTextInput = target && (
+        (target.tagName === 'INPUT' && target.type !== 'file') ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
 
-      // 1. Check for files in clipboard (copied files from file manager or screenshot images)
-      const clipboardItems = e.clipboardData?.items;
-      const fileList = [];
+      // 1. Check for files in clipboard (files copied in file manager, screenshot images, etc.)
+      let filesFound = [];
 
-      if (clipboardItems) {
-        for (const item of clipboardItems) {
+      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
+        filesFound = Array.from(e.clipboardData.files);
+      } else if (e.clipboardData?.items) {
+        for (let i = 0; i < e.clipboardData.items.length; i++) {
+          const item = e.clipboardData.items[i];
           if (item.kind === 'file') {
-            const file = item.getAsFile();
-            if (file) {
-              fileList.push(file);
+            const f = item.getAsFile();
+            if (f) {
+              if (!f.name || f.name === 'image.png' || f.name === 'blob') {
+                const ext = f.type ? f.type.split('/')[1] || 'png' : 'png';
+                filesFound.push(new File([f], `pasted_media_${Date.now()}.${ext}`, { type: f.type }));
+              } else {
+                filesFound.push(f);
+              }
             }
           }
         }
       }
 
-      if (fileList.length > 0) {
+      if (filesFound.length > 0) {
         e.preventDefault();
+        e.stopPropagation();
         setActiveTab('FILES');
-        addFilesToStage(fileList);
+        addFilesToStage(filesFound);
         return;
       }
 
-      // 2. Check for text or link in clipboard if not actively typing inside input
-      if (!isInputFocused) {
-        const text = e.clipboardData?.getData('text');
+      // 2. Check for text or link in clipboard if not actively typing inside a text input/textarea
+      if (!isTextInput) {
+        const text = e.clipboardData?.getData('text/plain') || e.clipboardData?.getData('text');
         if (text && text.trim()) {
           const trimmed = text.trim();
           const isUrl = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(trimmed);
 
           if (isUrl) {
             e.preventDefault();
+            e.stopPropagation();
             setActiveTab('LINK');
             setLinkInput(trimmed);
           } else {
             e.preventDefault();
+            e.stopPropagation();
             setActiveTab('TEXT');
-            setTextInput(text);
+            setTextInput((prev) => (prev ? `${prev}\n${text}` : text));
           }
         }
       }
     };
 
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
+    // Attach to document in capturing phase so it catches all paste events across the window
+    document.addEventListener('paste', handlePaste, true);
+    return () => document.removeEventListener('paste', handlePaste, true);
   }, []);
+
+  const handlePasteButtonClick = async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        const filesFound = [];
+        for (const item of items) {
+          for (const type of item.types) {
+            if (type.startsWith('image/') || type === 'application/pdf' || type === 'application/octet-stream') {
+              const blob = await item.getType(type);
+              const ext = type.split('/')[1] || 'bin';
+              filesFound.push(new File([blob], `pasted_file_${Date.now()}.${ext}`, { type }));
+            }
+          }
+        }
+        if (filesFound.length > 0) {
+          setActiveTab('FILES');
+          addFilesToStage(filesFound);
+          return;
+        }
+      }
+
+      if (navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim()) {
+          const trimmed = text.trim();
+          const isUrl = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(trimmed);
+          if (isUrl) {
+            setActiveTab('LINK');
+            setLinkInput(trimmed);
+          } else {
+            setActiveTab('TEXT');
+            setTextInput((prev) => (prev ? `${prev}\n${text}` : text));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[THRIFT] Clipboard read API notice:', err);
+    }
+  };
+
 
   const handleSendStagedFiles = () => {
     if (stagedFiles.length === 0) return;
@@ -206,10 +264,25 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.72rem' }} className="mono">
-          <Clipboard size={12} />
-          <span>PASTE (CTRL+V) SUPPORTED</span>
-        </div>
+        <button
+          type="button"
+          onClick={handlePasteButtonClick}
+          className="border-glow-btn"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            color: 'var(--text-secondary)',
+            fontSize: '0.72rem',
+            padding: '0.2rem 0.55rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+          title="Paste files, text, or link from clipboard (Ctrl+V)"
+        >
+          <Clipboard size={12} style={{ color: 'var(--accent-lime)' }} />
+          <span>PASTE (CTRL+V)</span>
+        </button>
       </div>
 
       {p2pNotice && (
