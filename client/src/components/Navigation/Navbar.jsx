@@ -48,13 +48,14 @@ export function Navbar({ appState, sessionData, onDisconnect }) {
           src={logoImg}
           alt="File Thrifter Logo"
           style={{
-            width: '30px',
-            height: '30px',
-            borderRadius: '6px',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
             objectFit: 'cover',
+            display: 'block',
           }}
         />
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           <h1 style={{
             fontSize: '1.15rem',
             fontWeight: 800,
