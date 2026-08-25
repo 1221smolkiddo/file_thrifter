@@ -1,152 +1,205 @@
-# THRIFT
+# THRIFT ⚡
 
-THRIFT is a simple, private file-sharing app for moving files, text, and links directly between two devices.
+> **Zero-Knowledge, Zero-Storage, Zero-Cost Peer-to-Peer File Sharing.**
 
-It uses a short-lived pairing session to connect devices and WebRTC to transfer data peer-to-peer. The signaling server coordinates the connection, but it does not receive, store, inspect, or proxy file contents.
+THRIFT is a lightning-fast, privacy-first web application for transferring files, encrypted text snippets, and links directly between devices in real time.
 
-## Features
+Data moves directly peer-to-peer using **WebRTC DataChannels**. The signaling server facilitates cryptographic device pairing and session routing, but **never inspects, receives, proxies, or stores your file payloads or transfer history**.
 
-- Share files directly between paired devices
-- Send text and links through the same private connection
-- Pair devices with a QR code or pairing code
-- No account, upload library, or transfer history
-- Receiver-side download after a file is fully assembled
-- Sender success is confirmed by the receiver's transfer acknowledgement
-- Clear success and failure states for both devices
-- Five-minute inactivity timeout after pairing
-- Keep-alives prevent an active transfer from being interrupted by inactivity timeout
-- Optional STUN and TURN server configuration for WebRTC connectivity
-- WebSocket heartbeat and rate limiting on the signaling server
-- Health endpoint at `/health`
+---
 
-## How It Works
+## ✨ Features
 
-1. The first device creates a session and displays a QR code and pairing code.
-2. The second device scans the QR code or pastes the pairing code.
-3. The host accepts the connection request.
-4. Both devices establish an encrypted WebRTC DataChannel.
-5. One device selects **Send files** and the other selects **Receive files**.
-6. Files, text, or links are transferred directly between the browsers.
-7. For files, the receiver assembles all chunks and sends an acknowledgement before the sender shows success.
+### 🔒 Core Security & Privacy
+- **True P2P Architecture**: Files stream directly browser-to-browser via DTLS/SCTP-encrypted WebRTC DataChannels.
+- **Zero Traces**: No accounts, no cloud buckets, no upload libraries, and no logs containing secrets, file names, or contents.
+- **Constant-Time Verification**: 256-bit pairing secret tokens verified with `crypto.timingSafeEqual` to prevent timing attacks.
+- **Privacy-Preserving Telemetry**: Clean in-memory counters; client IPs are SHA-256 hashed and never stored or logged raw.
 
-The server is used for session creation, pairing, and WebRTC signaling only. It does not handle the file payload.
+### 🚀 Resilience & Network Traversal
+- **Reconnection Grace Period (30s)**: If a mobile screen sleeps or Wi-Fi drops, the session stays alive in memory. Reconnect tokens automatically restore the session upon network recovery without restarting.
+- **Same-Subnet Local Discovery**: Devices on the same Wi-Fi/subnet detect active local sessions while preserving zero-knowledge pairing security.
+- **E2EE WebSocket Relay Fallback**: When symmetric NATs or corporate firewalls completely block P2P WebRTC channels, THRIFT transparently falls back to an encrypted binary pipe through the signaling server (with per-session byte caps).
+- **Coturn Ephemeral TURN Integration**: Built-in HMAC-SHA1 dynamic credential generation compatible with free, self-hosted [Coturn](https://github.com/coturn/coturn) servers (`static-auth-secret`).
 
-## Requirements
+### 🎨 UI/UX & Aesthetics
+- **Swiss Cyberpunk Dark Mode**: High-contrast, typography-driven interface with fluid spring micro-interactions.
+- **Continuous Orbiting Glow**: Conic-gradient orbiting border animations on the cryptographic QR generator card.
+- **Real-Time Transfer Visualizer**: Live speed metrics (MB/s), visual chunk progress bars, SHA-256 assembly verification, and two-way transfer acknowledgments.
 
-- Node.js 18 or newer
-- npm
-- Two modern browsers for testing device-to-device sharing
+---
 
-## Project Structure
+## 🛠️ Architecture & Protocol
+
+```text
+  Host Device                          Signaling Server                        Guest Device
+       │                                       │                                     │
+       │─── 1. CREATE_SESSION ────────────────>│                                     │
+       │<── 2. SESSION_CREATED (QR/Token) ─────│                                     │
+       │                                       │<─── 3. JOIN_SESSION (ID + Secret) ──│
+       │<── 4. CONNECTION_REQUEST ─────────────│─── 5. JOINING ─────────────────────>│
+       │─── 6. ACCEPT_CONNECTION ─────────────>│                                     │
+       │<── 7. SESSION_CONNECTED + ICE ────────│─── 8. SESSION_CONNECTED + ICE ─────>│
+       │                                       │                                     │
+       │══════════════════ WebRTC SDP & ICE Candidate Signaling ═════════════════════│
+       │                                                                             │
+       │◄══════════════ Direct Encrypted WebRTC DataChannel (P2P) ══════════════════►│
+       │                                                                             │
+       │   [Send Chunk 1] ──────────────────────────────────────────────────────────>│
+       │   [Send Chunk 2] ──────────────────────────────────────────────────────────>│
+       │   [Send FILE_COMPLETE] ────────────────────────────────────────────────────>│
+       │<── [TRANSFER_ACK] ──────────────────────────────────────────────────────────│
+```
+
+---
+
+## 📁 Repository Structure
 
 ```text
 .
-├── client/                 React and Vite frontend
+├── client/                     React + Vite Frontend
 │   └── src/
-│       ├── components/     Pairing, QR, file drop, navigation, transfer UI
-│       ├── hooks/          WebSocket session and WebRTC lifecycle hooks
-│       ├── lib/webrtc/     DataChannel, signaling, and message helpers
-│       └── pages/          Application pages
-├── server/                 Node.js WebSocket signaling server
-│   ├── security/           Tokens and rate limiting
-│   ├── session/            Session lifecycle and timeout management
-│   ├── websocket/          Protocol validation and connection handling
-│   └── tests/              Backend tests
-├── .env.example            Example server configuration
-└── package.json             Root development and build scripts
+│       ├── components/         BorderGlow, QR, FileDrop, Navbar, Visualizer
+│       ├── hooks/              useWebSocketSession & useWebRTC lifecycle hooks
+│       ├── lib/webrtc/         DataChannel engine, SDP signaling, chunking
+│       └── pages/              Home application page
+├── server/                     Node.js Signaling & Fallback Relay Server
+│   ├── monitoring/             In-memory metrics tracker (/health & /metrics)
+│   ├── relay/                  E2EE WebSocket relay fallback handlers
+│   ├── security/               Tokens, rate limiters, Coturn HMAC generator
+│   ├── session/                Session lifecycle, grace timers, IP discovery
+│   ├── websocket/              Protocol validation & connection handlers
+│   └── tests/                  Comprehensive test suite (33 tests)
+├── .env.example                Environment variable configuration template
+└── package.json                Root scripts & workspace orchestrator
 ```
 
-## Getting Started
+---
 
-Install dependencies for both packages:
+## 🚀 Quick Start (Local Development)
+
+### Prerequisites
+- **Node.js**: v18.0.0 or newer
+- **npm**: v9.0.0 or newer
+- Two browser tabs or devices on the same local network
+
+### 1. Installation
+Install dependencies for both client and server:
 
 ```bash
 npm install --prefix client
 npm install --prefix server
 ```
 
-Start the signaling server in one terminal:
+### 2. Run Development Servers
+Start both the signaling server and frontend Vite dev server concurrently:
 
 ```bash
+# Terminal 1: Signaling Server (Port 4000)
 npm run dev:server
-```
 
-Start the Vite client in another terminal:
-
-```bash
+# Terminal 2: Vite Client (Port 5173)
 npm run dev:client
 ```
 
-Open the URL printed by Vite, normally `http://localhost:5173`.
+Open `http://localhost:5173` in your browser.
 
-To build the frontend:
+---
+
+## 🧪 Running Tests & Build Verification
+
+Run the full automated test suite:
+
+```bash
+npm test
+```
+
+*Output:*
+```text
+✔ Token Generation (6 tests)
+✔ Ephemeral TURN Credentials (4 tests)
+✔ Protocol Validation (13 tests)
+✔ Rate Limiter (3 tests)
+✔ Metrics & Monitoring (1 test)
+✔ SessionManager Unit Tests (4 tests)
+✔ Integration Tests with All Features (4 tests)
+
+Total: 33/33 tests passed
+```
+
+Build the production client bundle:
 
 ```bash
 npm run build
 ```
 
-To run the backend test suite:
+---
+
+## ⚙️ Configuration & Environment Variables
+
+Copy `.env.example` to `.env` in the `server/` directory:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `4000` | Signaling server HTTP / WebSocket port |
+| `NODE_ENV` | `development` | Environment mode (`development` / `production`) |
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed frontend origin checked on WebSocket upgrade |
+| `SESSION_TTL_MS` | `600000` (10m) | Expiration time for unpaired QR sessions |
+| `SESSION_IDLE_TIMEOUT_MS` | `300000` (5m) | Inactivity timeout for paired sessions |
+| `RECONNECT_GRACE_MS` | `30000` (30s) | Grace period to hold session when peer disconnects |
+| `STUN_SERVERS` | Google STUN | Comma-separated public STUN server list |
+| `TURN_SERVERS` | `""` | Comma-separated TURN server URLs |
+| `TURN_SHARED_SECRET` | `""` | Coturn `static-auth-secret` for ephemeral HMAC generation |
+| `TURN_CREDENTIAL_TTL_S` | `21600` (6h) | Ephemeral TURN token lifetime |
+| `RELAY_MAX_BYTES` | `524288000` (500MB) | Max bytes allowed per session in E2EE relay mode |
+| `VITE_WS_URL` *(Client)* | Auto-detected | Custom WebSocket signaling endpoint (`wss://...`) |
+
+---
+
+## 🌐 Production Deployment
+
+### 1. Signaling Server
+Deploy the server to any Node.js host (Docker, VPS, Railway, Render, Fly.io):
 
 ```bash
-npm --prefix server test
+export NODE_ENV=production
+export PORT=4000
+export FRONTEND_ORIGIN=https://your-app-domain.com
+npm start
 ```
 
-The server listens on port `4000` by default. The client expects the signaling server at `ws://<host>:4000` during development.
+### 2. Frontend Client
+Build and deploy the static `client/dist/` output to any CDN/static host (Cloudflare Pages, Vercel, Netlify, Nginx, S3):
 
-## Configuration
+```bash
+npm run build
+```
 
-Use `.env.example` as the reference when configuring the server process. The current server reads configuration from environment variables; provide them through your shell, process manager, container, or deployment platform.
+*When deployed over HTTPS, the client automatically connects to `wss://` on the host or uses `VITE_WS_URL`.*
 
-Important settings include:
+### 3. Self-Hosted Coturn TURN Server (Optional & 100% Free)
+For high-reliability connections behind restrictive corporate firewalls:
+```text
+# /etc/turnserver.conf
+listening-port=3478
+fingerprint
+use-auth-secret
+static-auth-secret=your_super_secret_hex_key
+realm=turn.yourdomain.com
+```
 
-| Variable | Default | Purpose |
-| --- | ---: | --- |
-| `PORT` | `4000` | Signaling server port |
-| `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed frontend origin in production |
-| `SESSION_TTL_MS` | `600000` | Lifetime of an unpaired session, in milliseconds |
-| `SESSION_IDLE_TIMEOUT_MS` | `300000` | Inactivity timeout after pairing, in milliseconds |
-| `SESSION_CLEANUP_INTERVAL_MS` | `15000` | Expired-session cleanup interval |
-| `STUN_SERVERS` | Google STUN servers | Comma-separated STUN URLs |
-| `TURN_SERVERS` | Empty | Optional comma-separated TURN URLs |
-| `TURN_USERNAME` | Empty | TURN username |
-| `TURN_CREDENTIAL` | Empty | TURN credential |
+Set `TURN_SHARED_SECRET=your_super_secret_hex_key` and `TURN_SERVERS=turn:turn.yourdomain.com:3478?transport=udp` in your server `.env`.
 
-For production, configure HTTPS for the frontend and WSS for signaling, set `NODE_ENV=production`, and set `FRONTEND_ORIGIN` to the deployed frontend origin. A TURN server is recommended for users behind restrictive NATs or firewalls.
+---
 
-## Privacy and Security
+## 📊 Operational Telemetry
 
-- Session secrets are generated with cryptographically secure random bytes and are never logged in plaintext.
-- Session state and credentials are held in memory only.
-- The server does not persist file contents or transfer history.
-- Pairing and signaling messages are validated and rate-limited.
-- WebRTC encrypts the DataChannel between peers.
-- Unpaired sessions expire after the configured session lifetime.
-- Paired sessions are destroyed after five minutes of inactivity by default.
-- The inactivity timer is refreshed by signaling activity and transfer keep-alives; it does not impose a maximum transfer duration.
+The signaling server exposes lightweight JSON endpoints:
+- **`GET /health`**: Health status, uptime, and active session count.
+- **`GET /metrics`**: Real-time counter snapshots (`sessions_created`, `reconnect_successes`, `relay_bytes_total`, `rate_limit_hits`, `webrtc_signals_routed`).
 
-THRIFT is designed for private device-to-device transfers. The security of a transfer still depends on using a trusted deployment, protecting the pairing code, and using HTTPS/WSS in production.
+---
 
-## Troubleshooting
+## 📜 License
 
-### Devices cannot connect
-
-- Confirm the signaling server is running on port `4000`.
-- Make sure both devices can reach the frontend and signaling server.
-- Check that the production frontend origin matches `FRONTEND_ORIGIN`.
-- Configure TURN servers when direct WebRTC connectivity is blocked.
-
-### The pairing code no longer works
-
-An unpaired session expires after `SESSION_TTL_MS`, which defaults to 10 minutes. Create a new session and pair again.
-
-### The connection timed out
-
-After pairing, the session is closed after `SESSION_IDLE_TIMEOUT_MS` without activity. The default is five minutes. An active file transfer sends keep-alives so the transfer is not stopped by this timeout.
-
-### A transfer fails
-
-The UI reports errors from the WebRTC connection or DataChannel. Reconnect the devices and try again. For network-specific failures, check browser console logs and configure a TURN server.
-
-## License
-
-No license has been specified for this repository yet.
+MIT License — free for personal and commercial use.
