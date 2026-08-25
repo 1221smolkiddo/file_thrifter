@@ -54,6 +54,7 @@ export function BorderGlow({
   };
 
   const isLit = (isHovered || alwaysActive) && !disabled;
+  const isClickable = !disabled && (Component === 'button' || Component === 'a' || Boolean(onClick) || props.cursor === 'pointer');
 
   return (
     <Component
@@ -63,7 +64,7 @@ export function BorderGlow({
       onMouseLeave={() => setIsHovered(false)}
       onMouseMove={handleMouseMove}
       disabled={disabled}
-      className={`border-glow-container ${isLit ? 'is-active' : ''} ${className}`}
+      className={`border-glow-container ${isLit ? 'is-active' : ''} ${isClickable ? 'is-clickable' : ''} ${className}`}
       style={{
         position: 'relative',
         display: 'inline-flex',
@@ -79,8 +80,7 @@ export function BorderGlow({
         boxShadow: isLit
           ? `0 0 ${glowIntensity}px rgba(183, 255, 90, 0.28), 0 0 ${glowIntensity * 2}px rgba(183, 255, 90, 0.1)`
           : 'none',
-        transition: 'box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s ease',
-        cursor: disabled ? 'default' : props.cursor || (Component === 'button' || onClick ? 'pointer' : 'default'),
+        cursor: disabled ? 'default' : props.cursor || (Component === 'button' || Component === 'a' || onClick ? 'pointer' : 'default'),
         overflow: 'hidden',
         ...style,
       }}

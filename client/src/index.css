@@ -193,14 +193,41 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease,
+              color 0.2s ease;
+  transform-origin: center center;
 }
 
 button:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* ReactBits Border Glow Effects */
+.border-glow-container {
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.border-glow-container.is-clickable:hover,
+button.border-glow-container:hover,
+a.border-glow-container:hover {
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 0 32px rgba(183, 255, 90, 0.45), 0 0 60px rgba(183, 255, 90, 0.18) !important;
+}
+
+.border-glow-container.is-clickable:active,
+button.border-glow-container:active,
+a.border-glow-container:active {
+  transform: translateY(1px) scale(0.975);
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+}
+
 .border-glow-btn {
   position: relative;
   z-index: 1;
@@ -213,7 +240,9 @@ button:active {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center center;
 }
 
 .border-glow-btn::before {
@@ -256,13 +285,14 @@ button:active {
 }
 
 .border-glow-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 24px rgba(183, 255, 90, 0.32), 0 0 45px rgba(183, 255, 90, 0.12);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 28px rgba(183, 255, 90, 0.4), 0 0 50px rgba(183, 255, 90, 0.15);
 }
 
 .border-glow-btn:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
   box-shadow: none;
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* Always-glowing variant for high-priority CTA buttons */
@@ -275,7 +305,9 @@ button:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center center;
   cursor: pointer;
 }
 
@@ -319,12 +351,13 @@ button:active {
 }
 
 .border-glow-active:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 28px rgba(183, 255, 90, 0.42), 0 0 52px rgba(183, 255, 90, 0.16);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 32px rgba(183, 255, 90, 0.48), 0 0 60px rgba(183, 255, 90, 0.2);
 }
 
 .border-glow-active:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* Standardized Button Hover Classes */
@@ -337,20 +370,24 @@ button:active {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease;
+  transform-origin: center center;
   position: relative;
   cursor: pointer;
 }
 
 .btn-primary:hover {
   background: #ffffff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(242, 240, 234, 0.22);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 28px rgba(242, 240, 234, 0.25);
 }
 
 .btn-primary:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
   box-shadow: none;
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .btn-lime {
@@ -362,20 +399,24 @@ button:active {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease;
+  transform-origin: center center;
   position: relative;
   cursor: pointer;
 }
 
 .btn-lime:hover {
   background: var(--accent-lime-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 26px rgba(183, 255, 90, 0.35);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 30px rgba(183, 255, 90, 0.42);
 }
 
 .btn-lime:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
   box-shadow: none;
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .btn-surface {
@@ -388,7 +429,11 @@ button:active {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease,
+              border-color 0.2s ease;
+  transform-origin: center center;
   cursor: pointer;
 }
 
@@ -396,49 +441,74 @@ button:active {
   background: var(--bg-surface-hover);
   border-color: var(--text-secondary);
   color: #ffffff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 .btn-surface:active {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.975);
   box-shadow: none;
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Icon Micro-Interactions on Hover */
+/* Fluid Icon Micro-Interactions on Hover */
+.icon-arrow,
+.icon-download,
+.icon-zap,
+.icon-copy,
+.icon-arrow-up-right {
+  display: inline-block;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
+}
+
+/* Horizontal Arrow: Smooth squishy glide to the right */
 .btn-primary:hover .icon-arrow,
 .btn-lime:hover .icon-arrow,
 .btn-surface:hover .icon-arrow,
 .border-glow-btn:hover .icon-arrow,
 .border-glow-active:hover .icon-arrow,
+.border-glow-container:hover .icon-arrow,
+button:hover .icon-arrow,
+a:hover .icon-arrow,
 .touch-target:hover .icon-arrow {
-  transform: translateX(4px);
+  transform: translateX(6px);
 }
 
+/* Diagonal Up-Right Arrow: Smooth glide up and right */
+.border-glow-container:hover .icon-arrow-up-right,
+button:hover .icon-arrow-up-right,
+.qr-placeholder-card:hover .icon-arrow-up-right,
+.interactive-card:hover .icon-arrow-up-right {
+  transform: translate(3px, -3px);
+}
+
+/* Download Icon: Gentle bounce down */
 .btn-primary:hover .icon-download,
 .btn-lime:hover .icon-download,
 .border-glow-btn:hover .icon-download,
-.border-glow-active:hover .icon-download {
-  transform: translateY(2px);
+.border-glow-active:hover .icon-download,
+.border-glow-container:hover .icon-download {
+  transform: translateY(3px) scale(1.08);
 }
 
+/* Zap Icon: Pop and tilt */
 .btn-primary:hover .icon-zap,
 .btn-surface:hover .icon-zap,
 .border-glow-btn:hover .icon-zap,
-.border-glow-active:hover .icon-zap {
-  transform: scale(1.18) rotate(6deg);
+.border-glow-active:hover .icon-zap,
+.border-glow-container:hover .icon-zap {
+  transform: scale(1.22) rotate(8deg);
 }
 
+/* Copy Icon: Gentle squishy pulse */
 .btn-primary:hover .icon-copy,
 .btn-lime:hover .icon-copy,
 .btn-surface:hover .icon-copy,
 .border-glow-btn:hover .icon-copy,
-.border-glow-active:hover .icon-copy {
-  transform: scale(1.12);
-}
-
-.icon-arrow, .icon-download, .icon-zap, .icon-copy {
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+.border-glow-active:hover .icon-copy,
+.border-glow-container:hover .icon-copy {
+  transform: scale(1.18);
 }
 
 /* Interactive Card Utility */

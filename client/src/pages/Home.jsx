@@ -87,6 +87,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
               glowColor="var(--accent-lime)"
               backgroundColor="var(--text-primary)"
               alwaysActive={true}
+              pointerTracked={false}
               speed={3}
               style={{ width: '100%' }}
             >
@@ -202,12 +203,15 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
           <BorderGlow
             as="div"
             onClick={onCreateSession}
-            pointerTracked={true}
+            pointerTracked={false}
+            alwaysActive={true}
+            speed={3.5}
             glowColor="var(--accent-lime)"
             secondaryColor="#ffffff"
             backgroundColor="var(--bg-surface)"
             borderRadius="4px"
             glowIntensity={24}
+            className="qr-placeholder-card"
             style={{
               width: '100%',
               maxWidth: '380px',
@@ -233,7 +237,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
                 color: 'var(--text-secondary)',
                 transition: 'color 0.2s ease',
               }}>
-                GENERATE QR <ArrowUpRight size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }} />
+                GENERATE QR <ArrowUpRight size={14} className="icon-arrow-up-right" style={{ display: 'inline', verticalAlign: 'text-bottom' }} />
               </span>
             </div>
           </BorderGlow>
