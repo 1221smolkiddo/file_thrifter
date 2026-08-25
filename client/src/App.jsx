@@ -110,13 +110,15 @@ export default function App() {
   }, [showTransferError]);
 
   const showCompletedText = useCallback((text, status) => {
+    const isLink = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(text.trim());
     const size = new TextEncoder().encode(text).byteLength;
     setTransferPayload({
       fileInfo: {
-        name: 'pasted_text.txt',
+        name: isLink ? 'shared_link.url' : 'pasted_text.txt',
         size,
-        type: 'text/plain',
+        type: isLink ? 'text/uri-list' : 'text/plain',
         content: text,
+        isLink,
       },
       transferredBytes: size,
       totalBytes: size,
@@ -431,6 +433,7 @@ export default function App() {
           <TransferVisualizer
             transferPayload={transferPayload}
             isHost={sessionData.isHost}
+            transferRole={transferRole}
             onBlastAnother={handleAnotherTransfer}
           />
         );
@@ -487,7 +490,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <FaultyTerminal />
       <Navbar
         appState={appState}
@@ -500,9 +503,11 @@ export default function App() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '2rem 1rem',
+        padding: '1rem',
         position: 'relative',
         zIndex: 1,
+        overflowY: 'auto',
+        minHeight: 0,
       }}>
         {renderContent()}
       </main>
