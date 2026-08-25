@@ -3,30 +3,37 @@ import { ShieldAlert, Check, X } from 'lucide-react';
 
 export function PairingModal({ onAccept, onReject }) {
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(11, 11, 10, 0.85)',
-      backdropFilter: 'blur(8px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '1rem',
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '420px',
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--accent-lime)',
-        borderRadius: '4px',
-        padding: '2.5rem 2rem',
-        boxShadow: '0 0 40px var(--accent-lime-glow)',
+    <div
+      className="animate-modal-backdrop"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(11, 11, 10, 0.82)',
+        backdropFilter: 'blur(10px)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        textAlign: 'center',
-      }} className="swiss-grid-bg animate-success-pop">
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '1rem',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '420px',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--accent-lime)',
+          borderRadius: '4px',
+          padding: '2.5rem 2rem',
+          boxShadow: '0 12px 48px rgba(0, 0, 0, 0.7), 0 0 32px var(--accent-lime-glow)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          textAlign: 'center',
+        }}
+        className="swiss-grid-bg animate-modal-transition"
+      >
+
         
         <div style={{
           width: '64px',

@@ -305,6 +305,7 @@ export default function App() {
         downloadUrlsRef.current.push(downloadUrl);
 
         const batch = incomingBatchRef.current;
+        const now = Date.now();
         if (batch) {
           batch.completedBytes += incoming.transferredBytes;
           if (batch.files && batch.files[incoming.fileIndex]) {
@@ -315,6 +316,7 @@ export default function App() {
               downloadUrl,
               transferredBytes: incoming.transferredBytes,
               percentage: 100,
+              completedAt: now,
             };
           }
         }
@@ -344,6 +346,7 @@ export default function App() {
                 downloadUrl,
                 transferredBytes: incoming.transferredBytes,
                 percentage: 100,
+                completedAt: now,
               }],
             };
           }
@@ -357,6 +360,7 @@ export default function App() {
                 downloadUrl,
                 transferredBytes: incoming.transferredBytes,
                 percentage: 100,
+                completedAt: now,
               };
             }
             return f;
@@ -577,11 +581,12 @@ export default function App() {
         });
       },
       onFileComplete: ({ fileIndex }) => {
+        const now = Date.now();
         setTransferPayload((previous) => {
           if (!previous) return previous;
           const updatedFiles = (previous.files || []).map((f, idx) => {
             if (idx === fileIndex) {
-              return { ...f, status: 'COMPLETED', percentage: 100 };
+              return { ...f, status: 'COMPLETED', percentage: 100, completedAt: now };
             }
             return f;
           });

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { UploadCloud, Link as LinkIcon, ArrowRight, File, Plus, X, Files } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { UploadCloud, Link as LinkIcon, ArrowRight, File, Plus, X, Files, Clipboard } from 'lucide-react';
 import { BorderGlow } from '../Common/BorderGlow';
 
 const formatSize = (bytes) => {
@@ -16,6 +16,7 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
   const [textInput, setTextInput] = useState('');
   const [linkInput, setLinkInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const addFilesToStage = (newFiles) => {
     const valid = Array.from(newFiles).filter((f) => f && typeof f.slice === 'function');
@@ -34,26 +35,97 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
       addFilesToStage(e.target.files);
-      e.target.value = ''; // Reset input to allow re-selecting same files
+      e.target.value = '';
+    }
+  };
+
+  // ─── Universal Drag and Drop across the entire box ───
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      setIsDragging(true);
     }
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
-    setIsDragging(true);
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDragging) setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
-    setIsDragging(false);
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    dragCounterRef.current = 0;
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setActiveTab('FILES');
       addFilesToStage(e.dataTransfer.files);
     }
   };
+
+  // ─── Smart Clipboard Paste (Ctrl+V / Cmd+V) ───
+
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const target = e.target;
+      const isInputFocused = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      // 1. Check for files in clipboard (copied files from file manager or screenshot images)
+      const clipboardItems = e.clipboardData?.items;
+      const fileList = [];
+
+      if (clipboardItems) {
+        for (const item of clipboardItems) {
+          if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+              fileList.push(file);
+            }
+          }
+        }
+      }
+
+      if (fileList.length > 0) {
+        e.preventDefault();
+        setActiveTab('FILES');
+        addFilesToStage(fileList);
+        return;
+      }
+
+      // 2. Check for text or link in clipboard if not actively typing inside input
+      if (!isInputFocused) {
+        const text = e.clipboardData?.getData('text');
+        if (text && text.trim()) {
+          const trimmed = text.trim();
+          const isUrl = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(trimmed);
+
+          if (isUrl) {
+            e.preventDefault();
+            setActiveTab('LINK');
+            setLinkInput(trimmed);
+          } else {
+            e.preventDefault();
+            setActiveTab('TEXT');
+            setTextInput(text);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, []);
 
   const handleSendStagedFiles = () => {
     if (stagedFiles.length === 0) return;
@@ -83,46 +155,61 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
   const totalStagedSize = stagedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
 
   return (
-    <div style={{
-      width: '100%',
-      maxWidth: '600px',
-      margin: '0 auto',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '1.5rem',
-    }}>
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{
+        width: '100%',
+        maxWidth: '600px',
+        margin: '0 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem',
+        position: 'relative',
+      }}
+    >
       {/* Editorial Tab Selector */}
       <div style={{
         display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         borderBottom: '1px solid var(--bg-surface-border)',
         paddingBottom: '0.5rem',
-        gap: '2rem',
       }}>
-        {['FILES', 'TEXT', 'LINK'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              background: 'transparent',
-              color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)',
-              borderBottom: activeTab === tab ? '2px solid var(--accent-lime)' : '2px solid transparent',
-              padding: '0.25rem 0',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              letterSpacing: '0.05em',
-              transition: 'all 0.2s ease',
-            }}
-            className="mono"
-            onMouseEnter={(e) => {
-              if (activeTab !== tab) e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              if (activeTab !== tab) e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-          >
-            {tab}
-          </button>
-        ))}
+        <div style={{ display: 'flex', gap: '2rem' }}>
+          {['FILES', 'TEXT', 'LINK'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                background: 'transparent',
+                color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)',
+                borderBottom: activeTab === tab ? '2px solid var(--accent-lime)' : '2px solid transparent',
+                padding: '0.25rem 0',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease',
+              }}
+              className="mono"
+              onMouseEnter={(e) => {
+                if (activeTab !== tab) e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                if (activeTab !== tab) e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.72rem' }} className="mono">
+          <Clipboard size={12} />
+          <span>PASTE (CTRL+V) SUPPORTED</span>
+        </div>
       </div>
 
       {p2pNotice && (
@@ -133,13 +220,10 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
 
       {/* Tab 1: FILES */}
       {activeTab === 'FILES' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative' }}>
           {stagedFiles.length === 0 ? (
             <BorderGlow
               as="div"
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
               pointerTracked={true}
               alwaysActive={isDragging}
               glowColor="var(--accent-lime)"
@@ -188,10 +272,10 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
 
                 <div>
                   <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                    DROP FILES HERE
+                    {isDragging ? 'DROP TO ADD FILES' : 'DROP FILES HERE'}
                   </h3>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    select single or multiple files to send
+                    select, drag, or paste multiple files (Ctrl+V)
                   </p>
                 </div>
 
@@ -210,153 +294,184 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
               </div>
             </BorderGlow>
           ) : (
-            <div className="animate-slide-up" style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--bg-surface-border)',
-              borderRadius: '4px',
-              padding: '1.25rem',
-            }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderBottom: '1px solid var(--bg-surface-border)',
-                paddingBottom: '0.75rem',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} className="mono">
-                  <Files size={16} style={{ color: 'var(--accent-lime)' }} />
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>
-                    {stagedFiles.length} FILE{stagedFiles.length > 1 ? 'S' : ''} SELECTED
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    ({formatSize(totalStagedSize)})
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={clearStagedFiles}
-                  style={{
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: '0.75rem',
-                    cursor: 'pointer',
-                  }}
-                  className="mono"
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-red)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                >
-                  CLEAR ALL
-                </button>
-              </div>
+            <BorderGlow
+              as="div"
+              alwaysActive={isDragging}
+              glowColor="var(--accent-lime)"
+              backgroundColor="var(--bg-surface)"
+              borderRadius="4px"
+              style={{ width: '100%' }}
+            >
+              <div
+                className="animate-slide-up swiss-grid-bg"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
+                  padding: '1.25rem',
+                  position: 'relative',
+                }}
+              >
+                {/* Drag over overlay when files are already staged */}
+                {isDragging && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(11, 11, 10, 0.92)',
+                    zIndex: 10,
+                    borderRadius: '4px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    color: 'var(--accent-lime)',
+                    pointerEvents: 'none',
+                  }} className="mono animate-fade-in">
+                    <UploadCloud size={32} className="animate-pulse-glow" />
+                    <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>+ DROP TO ADD MORE FILES</span>
+                  </div>
+                )}
 
-              {/* Scrollable Staged Files List */}
-              <div style={{
-                maxHeight: '220px',
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem',
-              }}>
-                {stagedFiles.map((file, idx) => (
-                  <div
-                    key={`${file.name}-${idx}`}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: '1px solid var(--bg-surface-border)',
+                  paddingBottom: '0.75rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} className="mono">
+                    <Files size={16} style={{ color: 'var(--accent-lime)' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>
+                      {stagedFiles.length} FILE{stagedFiles.length > 1 ? 'S' : ''} SELECTED
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      ({formatSize(totalStagedSize)})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearStagedFiles}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: 'var(--bg-primary)',
-                      border: '1px solid var(--bg-surface-border)',
-                      borderRadius: '3px',
-                      padding: '0.5rem 0.75rem',
-                      fontSize: '0.8rem',
+                      background: 'transparent',
+                      color: 'var(--text-secondary)',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
                     }}
                     className="mono"
+                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-red)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden', flex: 1 }}>
-                      <File size={14} style={{ color: 'var(--accent-lime)', flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {file.name}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                        {formatSize(file.size)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeStagedFile(idx)}
-                        style={{
-                          background: 'transparent',
-                          color: 'var(--text-muted)',
-                          padding: '0.1rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
-                        title="Remove file"
-                        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-red)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Actions: Add more + Send Button */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="file"
-                    multiple
-                    onChange={handleFileChange}
-                    style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', zIndex: 2 }}
-                  />
-                  <div
-                    className="btn-surface"
-                    style={{
-                      padding: '0.85rem 1rem',
-                      fontSize: '0.85rem',
-                      letterSpacing: '0.05em',
-                      height: '100%',
-                    }}
-                  >
-                    <Plus size={16} /> ADD MORE
-                  </div>
+                    CLEAR ALL
+                  </button>
                 </div>
 
-                <BorderGlow
-                  as="button"
-                  onClick={handleSendStagedFiles}
-                  glowColor="var(--accent-lime)"
-                  backgroundColor="var(--text-primary)"
-                  alwaysActive={true}
-                  speed={2.8}
-                  style={{ width: '100%' }}
-                >
-                  <div
-                    style={{
-                      padding: '0.85rem 1.25rem',
-                      fontSize: '0.85rem',
-                      fontWeight: 800,
-                      color: 'var(--bg-primary)',
-                      letterSpacing: '0.05em',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem',
-                      width: '100%',
-                    }}
-                  >
-                    SEND {stagedFiles.length} FILE{stagedFiles.length > 1 ? 'S' : ''} <ArrowRight size={16} className="icon-arrow" />
+                {/* Scrollable Staged Files List */}
+                <div style={{
+                  maxHeight: '220px',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.4rem',
+                }}>
+                  {stagedFiles.map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--bg-surface-border)',
+                        borderRadius: '3px',
+                        padding: '0.5rem 0.75rem',
+                        fontSize: '0.8rem',
+                      }}
+                      className="mono"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden', flex: 1 }}>
+                        <File size={14} style={{ color: 'var(--accent-lime)', flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {file.name}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                          {formatSize(file.size)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeStagedFile(idx)}
+                          style={{
+                            background: 'transparent',
+                            color: 'var(--text-muted)',
+                            padding: '0.1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                          title="Remove file"
+                          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-red)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Actions: Add more + Send Button */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="file"
+                      multiple
+                      onChange={handleFileChange}
+                      style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', zIndex: 2 }}
+                    />
+                    <div
+                      className="btn-surface"
+                      style={{
+                        padding: '0.85rem 1rem',
+                        fontSize: '0.85rem',
+                        letterSpacing: '0.05em',
+                        height: '100%',
+                      }}
+                    >
+                      <Plus size={16} /> ADD MORE
+                    </div>
                   </div>
-                </BorderGlow>
+
+                  <BorderGlow
+                    as="button"
+                    onClick={handleSendStagedFiles}
+                    glowColor="var(--accent-lime)"
+                    backgroundColor="var(--text-primary)"
+                    alwaysActive={true}
+                    speed={2.8}
+                    style={{ width: '100%' }}
+                  >
+                    <div
+                      style={{
+                        padding: '0.85rem 1.25rem',
+                        fontSize: '0.85rem',
+                        fontWeight: 800,
+                        color: 'var(--bg-primary)',
+                        letterSpacing: '0.05em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        width: '100%',
+                      }}
+                    >
+                      SEND {stagedFiles.length} FILE{stagedFiles.length > 1 ? 'S' : ''} <ArrowRight size={16} className="icon-arrow" />
+                    </div>
+                  </BorderGlow>
+                </div>
               </div>
-            </div>
+            </BorderGlow>
           )}
         </div>
       )}
@@ -463,4 +578,5 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
     </div>
   );
 }
+
 

@@ -20,9 +20,7 @@ import {
   Clock,
   Loader2,
 } from 'lucide-react';
-import { zipSync } from 'fflate';
 import { BorderGlow } from '../Common/BorderGlow';
-
 
 function getFileIcon(fileName = '', mimeType = '') {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -44,10 +42,14 @@ function getFileIcon(fileName = '', mimeType = '') {
   return <FileText size={15} style={{ color: 'var(--accent-lime)' }} />;
 }
 
+function formatTime(timestamp) {
+  const d = timestamp ? new Date(timestamp) : new Date();
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 export function TransferVisualizer({ transferPayload, isHost, transferRole, onBlastAnother }) {
   const containerRef = useRef(null);
   const [copied, setCopied] = useState(false);
-  const [isZipping, setIsZipping] = useState(false);
 
   const {
     isBatch = false,
@@ -95,52 +97,22 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
     }
   };
 
-  const handleDownloadZip = async () => {
-    const downloadableFiles = files.filter((f) => f.blob || f.downloadUrl);
+  const handleDownloadAllFiles = () => {
+    const downloadableFiles = files.filter((f) => f.downloadUrl || f.blob);
     if (downloadableFiles.length === 0) return;
 
-    setIsZipping(true);
-    try {
-      const zipEntries = {};
-      for (let i = 0; i < downloadableFiles.length; i++) {
-        const f = downloadableFiles[i];
-        let blob = f.blob;
-        if (!blob && f.downloadUrl) {
-          const res = await fetch(f.downloadUrl);
-          blob = await res.blob();
-        }
-
-        if (blob) {
-          const arrayBuf = await blob.arrayBuffer();
-          let name = f.name || `file_${i + 1}`;
-          if (zipEntries[name]) {
-            const dotIdx = name.lastIndexOf('.');
-            const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
-            const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
-            let count = 1;
-            while (zipEntries[`${base}_${count}${ext}`]) count++;
-            name = `${base}_${count}${ext}`;
-          }
-          zipEntries[name] = new Uint8Array(arrayBuf);
-        }
-      }
-
-      const zipped = zipSync(zipEntries);
-      const zipBlob = new Blob([zipped], { type: 'application/zip' });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `thrift_bundle_${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch (err) {
-      console.error('[THRIFT] Failed to generate zip:', err);
-    } finally {
-      setIsZipping(false);
-    }
+    downloadableFiles.forEach((f, index) => {
+      setTimeout(() => {
+        const a = document.createElement('a');
+        a.href = f.downloadUrl;
+        a.download = f.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }, index * 250);
+    });
   };
+
 
   const formatSize = (bytes) => {
     if (!bytes) return '0 B';
@@ -150,33 +122,37 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
     return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
   };
 
+  const isTransferring = status === 'SENDING' || status === 'RECEIVING' || status === 'TRANSFERRING';
+  const isCompleted = status === 'SENT' || status === 'RECEIVED' || percentage === 100;
   const isError = status === 'ERROR';
-  const isCompleted = ['COMPLETED', 'SENT', 'RECEIVED'].includes(status);
-  const isSender = transferRole === 'SENDER' || ['SENDING', 'SENT'].includes(status);
-  const isTransferring = !isCompleted && !isError;
+  const isSender = transferRole === 'SENDER';
+
+  const speedVal = parseFloat(speedMbps) || 1;
+  const animDuration = Math.max(0.3, Math.min(2.0, 2 / speedVal));
 
   const displayTitle = isBatch
-    ? `${totalFiles} FILE${totalFiles > 1 ? 'S' : ''} (${formatSize(totalBytes)})`
-    : fileInfo.name;
+    ? `${totalFiles} FILES (${formatSize(totalBytes)})`
+    : hasTextContent
+      ? isLink ? 'SHARED LINK' : 'SHARED TEXT'
+      : fileInfo.name || 'Transferring Payload';
 
-  const resultLabel = status === 'SENT'
-    ? (isLink ? 'LINK SENT SUCCESSFULLY' : hasTextContent ? 'TEXT SENT SUCCESSFULLY' : isBatch ? `${totalFiles} FILES SENT SUCCESSFULLY` : 'FILE SENT SUCCESSFULLY')
-    : status === 'RECEIVED'
-      ? (isLink ? 'LINK RECEIVED SUCCESSFULLY' : hasTextContent ? 'TEXT RECEIVED SUCCESSFULLY' : isBatch ? `${totalFiles} FILES RECEIVED SUCCESSFULLY` : 'FILE RECEIVED SUCCESSFULLY')
-      : isError ? 'TRANSFER FAILED' : null;
-
-  const animDuration = Math.max(0.4, 2.5 - Math.min(2.0, parseFloat(speedMbps) / 20));
-  const linkHref = isLink && fileInfo.content
-    ? (fileInfo.content.trim().startsWith('http') ? fileInfo.content.trim() : `https://${fileInfo.content.trim()}`)
+  const resultLabel = isCompleted
+    ? isSender
+      ? isBatch ? `${totalFiles} FILES SENT SUCCESSFULLY` : (hasTextContent ? (isLink ? 'LINK TRANSMITTED' : 'TEXT TRANSMITTED') : 'TRANSFER COMPLETE')
+      : isBatch ? `${totalFiles} FILES RECEIVED SUCCESSFULLY` : (hasTextContent ? (isLink ? 'LINK RECEIVED' : 'TEXT RECEIVED') : 'FILE RECEIVED')
     : null;
 
-  const hasMultipleFiles = isBatch && files.length > 1;
-  const completedDownloadableCount = files.filter((f) => f.downloadUrl || f.blob).length;
+  const linkHref = isLink ? (fileInfo.content.startsWith('http') ? fileInfo.content : `https://${fileInfo.content}`) : null;
+  const hasMultipleFiles = isBatch && totalFiles > 1;
+  const completedDownloadableCount = files.filter((f) => f.downloadUrl || f.status === 'COMPLETED').length;
+
+  const senderIsLaptop = isSender ? isHost : !isHost;
+  const receiverIsLaptop = !isSender ? isHost : !isHost;
 
   return (
     <div style={{
       width: '100%',
-      maxWidth: '640px',
+      maxWidth: '560px',
       margin: '0 auto',
       display: 'flex',
       flexDirection: 'column',
@@ -247,11 +223,16 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                 transition: 'all 0.3s ease',
               }}
             >
-              {isHost ? <Laptop size={22} /> : <Smartphone size={22} />}
+              {senderIsLaptop ? <Laptop size={22} /> : <Smartphone size={22} />}
             </div>
-            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
-              {isHost ? 'LAPTOP' : 'PHONE'}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--accent-lime)', letterSpacing: '0.04em' }} className="mono">
+                SENDING FILES
+              </span>
+              <span style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-secondary)' }} className="mono">
+                {isSender ? (isHost ? 'LAPTOP (YOU)' : 'PHONE (YOU)') : (isHost ? 'PHONE' : 'LAPTOP')}
+              </span>
+            </div>
           </div>
 
           {/* Stream Pipeline */}
@@ -359,11 +340,16 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                 transition: 'all 0.3s ease',
               }}
             >
-              {!isHost ? <Laptop size={22} /> : <Smartphone size={22} />}
+              {receiverIsLaptop ? <Laptop size={22} /> : <Smartphone size={22} />}
             </div>
-            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
-              {!isHost ? 'LAPTOP' : 'PHONE'}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isCompleted ? 'var(--text-primary)' : 'var(--text-secondary)', letterSpacing: '0.04em' }} className="mono">
+                RECEIVING FILES
+              </span>
+              <span style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-secondary)' }} className="mono">
+                {!isSender ? (isHost ? 'LAPTOP (YOU)' : 'PHONE (YOU)') : (isHost ? 'PHONE' : 'LAPTOP')}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -478,7 +464,6 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                 const fileDone = file.status === 'COMPLETED';
                 const fileActive = file.status === 'TRANSFERRING';
 
-
                 return (
                   <div
                     key={file.id || idx}
@@ -506,7 +491,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
                         {formatSize(file.size)}
                       </span>
@@ -545,6 +530,16 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                           <Clock size={12} />
                         </div>
                       )}
+
+                      {/* Timestamp placed after GET */}
+                      <span style={{
+                        color: 'var(--text-muted)',
+                        fontSize: '0.68rem',
+                        minWidth: '34px',
+                        textAlign: 'right',
+                      }}>
+                        {formatTime(file.completedAt || file.timestamp)}
+                      </span>
                     </div>
                   </div>
                 );
@@ -591,32 +586,28 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                         textDecoration: 'none',
                         color: 'var(--text-primary)',
                       }}
-                      title="Open link in new tab"
                     >
-                      <ExternalLink size={11} className="icon-arrow" />
-                      OPEN
+                      <ExternalLink size={12} /> OPEN LINK
                     </a>
                   )}
                   <button
                     type="button"
                     onClick={handleCopyContent}
-                    className={copied ? 'btn-lime' : 'border-glow-btn'}
+                    className="border-glow-btn"
                     style={{
-                      padding: '0.2rem 0.55rem',
+                      padding: '0.2rem 0.5rem',
                       fontSize: '0.65rem',
-                      fontWeight: 700,
+                      fontWeight: 600,
                       gap: '0.25rem',
-                      color: copied ? 'var(--bg-primary)' : 'var(--text-primary)',
                     }}
-                    title="Copy to clipboard"
                   >
-                    {copied ? <Check size={11} className="icon-copy" /> : <Copy size={11} className="icon-copy" />}
-                    {copied ? 'COPIED!' : 'COPY'}
+                    {copied ? <Check size={12} style={{ color: 'var(--accent-lime)' }} /> : <Copy size={12} />}
+                    {copied ? 'COPIED' : 'COPY'}
                   </button>
                 </div>
               </div>
               <div style={{
-                maxHeight: '100px',
+                maxHeight: '140px',
                 overflowY: 'auto',
                 padding: '0.65rem',
                 background: 'var(--bg-primary)',
@@ -644,16 +635,15 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
       {(isCompleted || isError) && (
         <div className="animate-slide-up" style={{
           display: 'grid',
-          gridTemplateColumns: (hasMultipleFiles && completedDownloadableCount > 1 && !isSender) || (isSender && fileInfo.content && !downloadUrl) ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
+          gridTemplateColumns: (isSender && fileInfo.content && !downloadUrl) ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
           gap: '0.65rem',
           width: '100%',
         }}>
-          {/* Download All as ZIP (Receiver side for batch > 1) */}
+          {/* Download All Individual Files (Receiver side for batch > 1) */}
           {hasMultipleFiles && completedDownloadableCount > 1 && !isSender && (
             <BorderGlow
               as="button"
-              onClick={handleDownloadZip}
-              disabled={isZipping}
+              onClick={handleDownloadAllFiles}
               glowColor="var(--accent-lime)"
               backgroundColor="var(--accent-lime)"
               alwaysActive={true}
@@ -674,11 +664,12 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                   width: '100%',
                 }}
               >
-                {isZipping ? <Loader2 size={18} className="animate-spin" /> : <Archive size={18} className="icon-download" />}
-                {isZipping ? 'CREATING ZIP...' : `DOWNLOAD ALL (${completedDownloadableCount} AS .ZIP)`}
+                <Download size={18} className="icon-download" />
+                DOWNLOAD ALL ({completedDownloadableCount} FILES)
               </div>
             </BorderGlow>
           )}
+
 
           {/* Single File Direct Download */}
           {!hasMultipleFiles && downloadUrl && (
@@ -746,37 +737,38 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             </BorderGlow>
           )}
 
-          {/* Transfer Another Action */}
-          <BorderGlow
-            as="button"
-            onClick={onBlastAnother}
-            glowColor="var(--accent-lime)"
-            secondaryColor="#ffffff"
-            backgroundColor="var(--bg-surface)"
-            pointerTracked={true}
-            style={{ width: '100%' }}
-          >
-            <div
-              style={{
-                padding: '0.85rem 1rem',
-                fontSize: '0.88rem',
-                fontWeight: 800,
-                color: 'var(--text-primary)',
-                letterSpacing: '0.06em',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.45rem',
-                width: '100%',
-              }}
+          {/* Transfer Another Action — SENDER ONLY */}
+          {isSender && (
+            <BorderGlow
+              as="button"
+              onClick={onBlastAnother}
+              glowColor="var(--accent-lime)"
+              secondaryColor="#ffffff"
+              backgroundColor="var(--bg-surface)"
+              pointerTracked={true}
+              style={{ width: '100%' }}
             >
-              <Zap size={18} className="icon-zap" />
-              TRANSFER ANOTHER
-            </div>
-          </BorderGlow>
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  color: 'var(--text-primary)',
+                  letterSpacing: '0.06em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  width: '100%',
+                }}
+              >
+                <Zap size={18} className="icon-zap" />
+                TRANSFER ANOTHER
+              </div>
+            </BorderGlow>
+          )}
         </div>
       )}
     </div>
   );
 }
-
