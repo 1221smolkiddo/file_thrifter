@@ -39,6 +39,17 @@ export function useWebSocketSession() {
   const reconnectTokenRef = useRef(null);
   const reconnectSessionIdRef = useRef(null);
 
+  const appStateRef = useRef(appState);
+  const sessionDataRef = useRef(sessionData);
+
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
+
+  useEffect(() => {
+    sessionDataRef.current = sessionData;
+  }, [sessionData]);
+
   // Initialize WS connection
   const connectWs = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -133,30 +144,38 @@ export function useWebSocketSession() {
           }
 
           case 'CONNECTION_REJECTED': {
-            setAppState(APP_STATE.ERROR);
-            setSessionData((prev) => ({
-              ...prev,
-              errorMessage: 'Connection request rejected by host device.',
-            }));
+            if (appStateRef.current !== APP_STATE.IDLE) {
+              setAppState(APP_STATE.ERROR);
+              setSessionData((prev) => ({
+                ...prev,
+                errorMessage: 'Connection request rejected by host device.',
+              }));
+            }
             break;
           }
 
           case 'SESSION_EXPIRED': {
-            setAppState(APP_STATE.EXPIRED);
+            if (appStateRef.current !== APP_STATE.IDLE && sessionDataRef.current?.displayId) {
+              setAppState(APP_STATE.EXPIRED);
+            }
             break;
           }
 
           case 'SESSION_TIMED_OUT': {
-            setAppState(APP_STATE.TIMED_OUT);
-            setSessionData((prev) => ({
-              ...prev,
-              errorMessage: 'Connection timed out after 5 minutes of inactivity.',
-            }));
+            if (appStateRef.current !== APP_STATE.IDLE && sessionDataRef.current?.displayId) {
+              setAppState(APP_STATE.TIMED_OUT);
+              setSessionData((prev) => ({
+                ...prev,
+                errorMessage: 'Connection timed out after 5 minutes of inactivity.',
+              }));
+            }
             break;
           }
 
           case 'PEER_DISCONNECTED': {
-            setAppState(APP_STATE.DISCONNECTED);
+            if (appStateRef.current !== APP_STATE.IDLE && sessionDataRef.current?.displayId) {
+              setAppState(APP_STATE.DISCONNECTED);
+            }
             break;
           }
 
@@ -177,8 +196,10 @@ export function useWebSocketSession() {
           }
 
           case 'PEER_RECONNECTING': {
-            console.log('[THRIFT] Peer is reconnecting...');
-            setAppState(APP_STATE.PEER_RECONNECTING);
+            if (appStateRef.current !== APP_STATE.IDLE) {
+              console.log('[THRIFT] Peer is reconnecting...');
+              setAppState(APP_STATE.PEER_RECONNECTING);
+            }
             break;
           }
 
@@ -220,8 +241,12 @@ export function useWebSocketSession() {
           }
 
           case 'ERROR': {
-            setAppState(APP_STATE.ERROR);
-            setSessionData((prev) => ({ ...prev, errorMessage: msg.message }));
+            if (appStateRef.current !== APP_STATE.IDLE) {
+              setAppState(APP_STATE.ERROR);
+              setSessionData((prev) => ({ ...prev, errorMessage: msg.message }));
+            } else {
+              console.warn('[THRIFT] Non-fatal error while idle:', msg.message);
+            }
             break;
           }
 
@@ -249,6 +274,15 @@ export function useWebSocketSession() {
         setTimeout(() => {
           connectWs();
         }, 1000);
+      } else if (
+        appStateRef.current !== APP_STATE.IDLE &&
+        appStateRef.current !== APP_STATE.DISCONNECTED &&
+        appStateRef.current !== APP_STATE.EXPIRED &&
+        appStateRef.current !== APP_STATE.TIMED_OUT
+      ) {
+        if (sessionDataRef.current?.displayId) {
+          setAppState(APP_STATE.DISCONNECTED);
+        }
       }
     };
 

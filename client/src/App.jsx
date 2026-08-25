@@ -272,7 +272,7 @@ export default function App() {
     if (appState !== APP_STATE.TRANSFERRING) return undefined;
 
     sendKeepAlive();
-    const interval = setInterval(sendKeepAlive, 60_000);
+    const interval = setInterval(sendKeepAlive, 20_000);
     return () => clearInterval(interval);
   }, [appState, sendKeepAlive]);
 
