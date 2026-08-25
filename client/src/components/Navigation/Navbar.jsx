@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, GlobeLock } from 'lucide-react';
 import { APP_STATE } from '../../hooks/useWebSocketSession';
+import logoImg from '../../assets/logo.jpeg';
 
 export function Navbar({ appState, sessionData, onDisconnect }) {
   const getStatusBadge = () => {
@@ -42,25 +43,39 @@ export function Navbar({ appState, sessionData, onDisconnect }) {
       top: 0,
       zIndex: 100,
     }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
-        <h1 style={{
-          fontSize: '1.1rem',
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-          lineHeight: 1,
-          color: 'var(--text-primary)',
-        }}>
-          THRIFT
-        </h1>
-        <p style={{
-          fontSize: '0.65rem',
-          letterSpacing: '0.08em',
-          color: 'var(--text-muted)',
-          fontWeight: 600,
-          textTransform: 'uppercase'
-        }}>
-          Share without a trace
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+        <img
+          src={logoImg}
+          alt="File Thrifter Logo"
+          style={{
+            width: '30px',
+            height: '30px',
+            borderRadius: '6px',
+            objectFit: 'cover',
+            border: '1px solid rgba(0, 102, 255, 0.4)',
+            boxShadow: '0 0 12px rgba(0, 102, 255, 0.25)',
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+          <h1 style={{
+            fontSize: '1.15rem',
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+            lineHeight: 1,
+            color: 'var(--text-primary)',
+          }}>
+            THRIFT
+          </h1>
+          <p style={{
+            fontSize: '0.65rem',
+            letterSpacing: '0.08em',
+            color: 'var(--text-muted)',
+            fontWeight: 600,
+            textTransform: 'uppercase'
+          }}>
+            Share without a trace
+          </p>
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
