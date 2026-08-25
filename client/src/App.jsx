@@ -36,43 +36,19 @@ export default function App() {
   const [transferPayload, setTransferPayload] = useState(null);
   const [p2pNotice, setP2pNotice] = useState('');
   const [transferRole, setTransferRole] = useState(null);
+  const incomingBatchRef = useRef(null);
   const incomingFileRef = useRef(null);
-  const downloadUrlRef = useRef(null);
+  const downloadUrlsRef = useRef([]);
   const sendDataRef = useRef(null);
 
-  const beginFileTransfer = useCallback((fileInfo) => {
-    setTransferPayload({
-      fileInfo,
-      transferredBytes: 0,
-      totalBytes: fileInfo.size,
-      percentage: 0,
-      speedBps: 0,
-      speedMbps: '0.0',
-      status: 'SENDING',
-    });
-    setAppState(APP_STATE.TRANSFERRING);
-  }, [setAppState]);
-
-  const updateFileTransfer = useCallback((transferredBytes, totalBytes) => {
-    setTransferPayload((previous) => ({
-      ...previous,
-      transferredBytes,
-      totalBytes,
-      percentage: Math.min(100, Math.round((transferredBytes / totalBytes) * 100)),
-      speedBps: 0,
-      speedMbps: '0.0',
-      status: 'SENDING',
-    }));
+  const revokeDownloadUrls = useCallback(() => {
+    if (downloadUrlsRef.current && downloadUrlsRef.current.length > 0) {
+      downloadUrlsRef.current.forEach((url) => {
+        try { URL.revokeObjectURL(url); } catch {}
+      });
+      downloadUrlsRef.current = [];
+    }
   }, []);
-
-  const completeFileTransfer = useCallback(() => {
-    setTransferPayload((previous) => ({
-      ...previous,
-      percentage: 100,
-      status: 'SENT',
-    }));
-    setAppState(APP_STATE.COMPLETED);
-  }, [setAppState]);
 
   const showTransferError = useCallback((errorMessage) => {
     setTransferPayload((previous) => ({
@@ -119,6 +95,7 @@ export default function App() {
     const isLink = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(text.trim());
     const size = new TextEncoder().encode(text).byteLength;
     setTransferPayload({
+      isBatch: false,
       fileInfo: {
         name: isLink ? 'shared_link.url' : 'pasted_text.txt',
         size,
@@ -143,12 +120,42 @@ export default function App() {
 
       incoming.chunks.push(data);
       incoming.transferredBytes += data.byteLength;
-      setTransferPayload((previous) => ({
-        ...previous,
-        transferredBytes: incoming.transferredBytes,
-        percentage: Math.min(100, Math.round((incoming.transferredBytes / incoming.fileInfo.size) * 100)),
-        status: 'RECEIVING',
-      }));
+
+      const batch = incomingBatchRef.current;
+      const completedBytes = batch ? batch.completedBytes : 0;
+      const overallTransferred = completedBytes + incoming.transferredBytes;
+      const totalBytes = batch ? batch.totalBytes : incoming.fileInfo.size;
+      const overallPercentage = totalBytes > 0 ? Math.min(100, Math.round((overallTransferred / totalBytes) * 100)) : 100;
+      const filePercentage = incoming.fileInfo.size > 0 ? Math.min(100, Math.round((incoming.transferredBytes / incoming.fileInfo.size) * 100)) : 100;
+
+      setTransferPayload((previous) => {
+        if (!previous) return previous;
+        const updatedFiles = (previous.files || []).map((f, idx) => {
+          if (idx === incoming.fileIndex || f.id === incoming.id) {
+            return {
+              ...f,
+              transferredBytes: incoming.transferredBytes,
+              percentage: filePercentage,
+              status: 'TRANSFERRING',
+            };
+          }
+          return f;
+        });
+
+        return {
+          ...previous,
+          transferredBytes: overallTransferred,
+          percentage: overallPercentage,
+          status: 'RECEIVING',
+          activeFileIndex: incoming.fileIndex,
+          currentFile: {
+            ...incoming.fileInfo,
+            transferredBytes: incoming.transferredBytes,
+            percentage: filePercentage,
+          },
+          files: updatedFiles,
+        };
+      });
       return;
     }
 
@@ -160,12 +167,11 @@ export default function App() {
         console.log('[THRIFT] Text received through DataChannel');
         showCompletedText(message.payload, 'RECEIVED');
         break;
+
       case DATA_MESSAGE_TYPE.ROLE: {
         const assignedRole = message.payload.role === 'SENDER' ? 'RECEIVER' : 'SENDER';
         setTransferRole((currentRole) => {
           if (currentRole && currentRole !== assignedRole) {
-            // The host's choice is authoritative when both peers select at
-            // once; the guest adopts it on receiving the host's role message.
             if (sessionData.isHost) {
               setP2pNotice('Both devices selected a role at once. Using this device\'s selection.');
               return currentRole;
@@ -176,69 +182,242 @@ export default function App() {
         setAppState(APP_STATE.CONNECTED);
         break;
       }
-      case DATA_MESSAGE_TYPE.FILE_OFFER: {
-        const fileInfo = message.payload;
-        incomingFileRef.current = {
-          id: message.id,
-          fileInfo,
-          chunks: [],
-          transferredBytes: 0,
+
+      case DATA_MESSAGE_TYPE.BATCH_OFFER: {
+        const { batchId, totalFiles, totalBytes, files: offerFiles } = message.payload;
+        incomingBatchRef.current = {
+          batchId,
+          totalFiles,
+          totalBytes,
+          completedBytes: 0,
+          files: offerFiles.map((f) => ({
+            ...f,
+            status: 'QUEUED',
+            transferredBytes: 0,
+            percentage: 0,
+          })),
         };
+
         setTransferPayload({
-          fileInfo,
+          isBatch: true,
+          batchId,
+          totalFiles,
+          totalBytes,
           transferredBytes: 0,
-          totalBytes: fileInfo.size,
           percentage: 0,
-          speedBps: 0,
           speedMbps: '0.0',
           status: 'RECEIVING',
+          activeFileIndex: 0,
+          files: offerFiles.map((f) => ({
+            ...f,
+            status: 'QUEUED',
+            transferredBytes: 0,
+            percentage: 0,
+          })),
         });
         setAppState(APP_STATE.TRANSFERRING);
         break;
       }
+
+      case DATA_MESSAGE_TYPE.FILE_OFFER: {
+        const fileInfo = message.payload;
+        const fileIndex = Number.isInteger(fileInfo.fileIndex) ? fileInfo.fileIndex : 0;
+        const totalFiles = Number.isInteger(fileInfo.totalFiles) ? fileInfo.totalFiles : 1;
+
+        incomingFileRef.current = {
+          id: message.id,
+          batchId: fileInfo.batchId,
+          fileIndex,
+          totalFiles,
+          fileInfo: {
+            id: message.id,
+            name: fileInfo.name,
+            size: fileInfo.size,
+            type: fileInfo.type || 'application/octet-stream',
+          },
+          chunks: [],
+          transferredBytes: 0,
+        };
+
+        setTransferPayload((previous) => {
+          if (!previous || !previous.isBatch) {
+            // Single file offer
+            return {
+              isBatch: false,
+              fileInfo: {
+                id: message.id,
+                name: fileInfo.name,
+                size: fileInfo.size,
+                type: fileInfo.type,
+              },
+              totalFiles: 1,
+              totalBytes: fileInfo.size,
+              transferredBytes: 0,
+              percentage: 0,
+              speedMbps: '0.0',
+              status: 'RECEIVING',
+              files: [{
+                id: message.id,
+                name: fileInfo.name,
+                size: fileInfo.size,
+                type: fileInfo.type,
+                status: 'TRANSFERRING',
+                transferredBytes: 0,
+                percentage: 0,
+              }],
+            };
+          }
+
+          // Part of existing batch
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === fileIndex || f.id === message.id) {
+              return { ...f, status: 'TRANSFERRING' };
+            }
+            return f;
+          });
+
+          return {
+            ...previous,
+            activeFileIndex: fileIndex,
+            currentFile: {
+              id: message.id,
+              name: fileInfo.name,
+              size: fileInfo.size,
+              type: fileInfo.type,
+              transferredBytes: 0,
+              percentage: 0,
+            },
+            files: updatedFiles,
+            status: 'RECEIVING',
+          };
+        });
+
+        setAppState(APP_STATE.TRANSFERRING);
+        break;
+      }
+
       case DATA_MESSAGE_TYPE.FILE_COMPLETE: {
         const incoming = incomingFileRef.current;
         if (!incoming || incoming.id !== message.id) return;
 
-        if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
-        const downloadUrl = URL.createObjectURL(new Blob(incoming.chunks, { type: incoming.fileInfo.type }));
-        downloadUrlRef.current = downloadUrl;
+        const blob = new Blob(incoming.chunks, { type: incoming.fileInfo.type });
+        const downloadUrl = URL.createObjectURL(blob);
+        downloadUrlsRef.current.push(downloadUrl);
+
+        const batch = incomingBatchRef.current;
+        if (batch) {
+          batch.completedBytes += incoming.transferredBytes;
+          if (batch.files && batch.files[incoming.fileIndex]) {
+            batch.files[incoming.fileIndex] = {
+              ...batch.files[incoming.fileIndex],
+              status: 'COMPLETED',
+              blob,
+              downloadUrl,
+              transferredBytes: incoming.transferredBytes,
+              percentage: 100,
+            };
+          }
+        }
+
+        // Send transfer ACK to sender
+        sendDataRef.current?.(createTransferAckMessage(message.id, {
+          batchId: incoming.batchId,
+          fileIndex: incoming.fileIndex,
+        }));
+
+        setTransferPayload((previous) => {
+          if (!previous) return previous;
+
+          if (!previous.isBatch) {
+            // Single file complete
+            return {
+              ...previous,
+              transferredBytes: incoming.transferredBytes,
+              percentage: 100,
+              status: 'RECEIVED',
+              downloadUrl,
+              blob,
+              files: [{
+                ...previous.fileInfo,
+                status: 'COMPLETED',
+                blob,
+                downloadUrl,
+                transferredBytes: incoming.transferredBytes,
+                percentage: 100,
+              }],
+            };
+          }
+
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === incoming.fileIndex || f.id === incoming.id) {
+              return {
+                ...f,
+                status: 'COMPLETED',
+                blob,
+                downloadUrl,
+                transferredBytes: incoming.transferredBytes,
+                percentage: 100,
+              };
+            }
+            return f;
+          });
+
+          return {
+            ...previous,
+            files: updatedFiles,
+          };
+        });
+
+        incomingFileRef.current = null;
+
+        // If it was a single file (not part of multi-file batch), mark COMPLETED
+        if (!batch || batch.totalFiles <= 1) {
+          setAppState(APP_STATE.COMPLETED);
+        }
+        break;
+      }
+
+      case DATA_MESSAGE_TYPE.BATCH_COMPLETE: {
+        incomingBatchRef.current = null;
         incomingFileRef.current = null;
         setTransferPayload((previous) => ({
           ...previous,
-          transferredBytes: incoming.transferredBytes,
           percentage: 100,
           status: 'RECEIVED',
-          downloadUrl,
         }));
-        if (!sendDataRef.current?.(createTransferAckMessage(message.id))) {
-          showTransferError('The file arrived, but the sender could not be notified.');
-          return;
-        }
         setAppState(APP_STATE.COMPLETED);
         break;
       }
+
       case DATA_MESSAGE_TYPE.TRANSFER_ACK:
         setTransferPayload((previous) => {
-          if (!previous?.fileInfo?.id || previous.fileInfo.id !== message.id) return previous;
-          return { ...previous, status: 'SENT', percentage: 100 };
+          if (!previous) return previous;
+          const updatedFiles = (previous.files || []).map((f) => {
+            if (f.id === message.id) {
+              return { ...f, status: 'COMPLETED', percentage: 100 };
+            }
+            return f;
+          });
+          return {
+            ...previous,
+            files: updatedFiles,
+          };
         });
-        completeFileTransfer();
         break;
+
       default:
         break;
     }
-  }, [completeFileTransfer, sessionData.isHost, showCompletedText, showTransferError, setAppState]);
+  }, [sessionData.isHost, showCompletedText, setAppState]);
 
   const {
     rtcState,
     dataChannelOpen,
-    isRelayFallback,
     handleSignal,
     sendTestMessage,
     sendData,
     sendText,
-    sendFile,
+    sendFiles,
     cleanup: cleanupWebRTC,
   } = useWebRTC({
     isHost: sessionData.isHost,
@@ -296,12 +475,13 @@ export default function App() {
     }
   }, [sendTestMessage, rtcState, dataChannelOpen]);
 
-  // ─── Enhanced disconnect that also cleans up WebRTC ───
+  // ─── Enhanced disconnect that also cleans up WebRTC & Blobs ───
 
   const handleDisconnect = useCallback(() => {
+    revokeDownloadUrls();
     cleanupWebRTC();
     disconnect();
-  }, [cleanupWebRTC, disconnect]);
+  }, [cleanupWebRTC, disconnect, revokeDownloadUrls]);
 
   // Auto-join if URL contains ?session=...&token=...
   useEffect(() => {
@@ -311,7 +491,6 @@ export default function App() {
     if (sessionId && token && appState === APP_STATE.IDLE) {
       console.log('[THRIFT] Auto-joining session from URL');
       joinSession(sessionId, token);
-      // Clean the URL without reloading the page
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [appState, joinSession]);
@@ -327,23 +506,106 @@ export default function App() {
     setAppState(APP_STATE.CONNECTED);
   }, [dataChannelOpen, sendData, setAppState]);
 
-  const handleFileSelected = useCallback(async (file) => {
+  const handleFilesSelected = useCallback(async (files) => {
     if (transferRole !== 'SENDER' || !dataChannelOpen) {
       setP2pNotice('Choose Send files after the P2P connection is ready.');
       return;
     }
 
     setP2pNotice('');
-    const sent = await sendFile(file, {
-      onStart: beginFileTransfer,
-      onProgress: updateFileTransfer,
+
+    const sent = await sendFiles(files, {
+      onBatchStart: ({ batchId, totalFiles, totalBytes, files: batchFiles }) => {
+        setTransferPayload({
+          isBatch: totalFiles > 1,
+          batchId,
+          totalFiles,
+          totalBytes,
+          transferredBytes: 0,
+          percentage: 0,
+          speedMbps: '0.0',
+          status: 'SENDING',
+          activeFileIndex: 0,
+          files: batchFiles.map((f) => ({
+            ...f,
+            status: 'QUEUED',
+            transferredBytes: 0,
+            percentage: 0,
+          })),
+        });
+        setAppState(APP_STATE.TRANSFERRING);
+      },
+      onFileStart: ({ id, name, size, type, fileIndex }) => {
+        setTransferPayload((previous) => {
+          if (!previous) return previous;
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === fileIndex || f.id === id) {
+              return { ...f, status: 'TRANSFERRING' };
+            }
+            return f;
+          });
+          return {
+            ...previous,
+            activeFileIndex: fileIndex,
+            currentFile: { id, name, size, type },
+            files: updatedFiles,
+          };
+        });
+      },
+      onProgress: ({ fileIndex, fileTransferredBytes, overallTransferredBytes, totalBatchBytes, speedMbps, filePercentage, overallPercentage }) => {
+        setTransferPayload((previous) => {
+          if (!previous) return previous;
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === fileIndex) {
+              return {
+                ...f,
+                transferredBytes: fileTransferredBytes,
+                percentage: filePercentage,
+                status: 'TRANSFERRING',
+              };
+            }
+            return f;
+          });
+          return {
+            ...previous,
+            transferredBytes: overallTransferredBytes,
+            totalBytes: totalBatchBytes,
+            percentage: overallPercentage,
+            speedMbps,
+            files: updatedFiles,
+          };
+        });
+      },
+      onFileComplete: ({ fileIndex }) => {
+        setTransferPayload((previous) => {
+          if (!previous) return previous;
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === fileIndex) {
+              return { ...f, status: 'COMPLETED', percentage: 100 };
+            }
+            return f;
+          });
+          return {
+            ...previous,
+            files: updatedFiles,
+          };
+        });
+      },
+      onBatchComplete: () => {
+        setTransferPayload((previous) => ({
+          ...previous,
+          percentage: 100,
+          status: 'SENT',
+        }));
+        setAppState(APP_STATE.COMPLETED);
+      },
       onError: (error) => showTransferError(error.message),
     });
 
     if (!sent) {
       showTransferError('File transfer could not be completed over the P2P connection.');
     }
-  }, [beginFileTransfer, dataChannelOpen, sendFile, showTransferError, transferRole, updateFileTransfer]);
+  }, [dataChannelOpen, sendFiles, showTransferError, transferRole, setAppState]);
 
   const handleTextSend = useCallback((text) => {
     if (transferRole !== 'SENDER' || !dataChannelOpen || !sendText(text)) {
@@ -357,16 +619,14 @@ export default function App() {
   }, [dataChannelOpen, sendText, showCompletedText, transferRole]);
 
   const handleAnotherTransfer = useCallback(() => {
-    if (downloadUrlRef.current) {
-      URL.revokeObjectURL(downloadUrlRef.current);
-      downloadUrlRef.current = null;
-    }
+    revokeDownloadUrls();
     setTransferPayload(null);
     setP2pNotice('');
     setAppState(APP_STATE.CONNECTED);
-  }, [setAppState]);
+  }, [revokeDownloadUrls, setAppState]);
 
   const renderContent = () => {
+
     switch (appState) {
       case APP_STATE.IDLE:
       case APP_STATE.CREATING_SESSION:
@@ -465,7 +725,8 @@ export default function App() {
         return transferRole === 'SENDER' ? (
           <div style={{ width: '100%', padding: '1rem 0' }}>
             <FileDropArea
-              onFileSelected={handleFileSelected}
+              onFileSelected={handleFilesSelected}
+              onFilesSelected={handleFilesSelected}
               onTextSend={handleTextSend}
               p2pNotice={p2pNotice}
             />

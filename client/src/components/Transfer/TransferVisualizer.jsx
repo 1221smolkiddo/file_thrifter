@@ -11,20 +11,56 @@ import {
   Check,
   ExternalLink,
   Link as LinkIcon,
+  Files,
+  Archive,
+  Image as ImageIcon,
+  Music,
+  Video,
+  Code,
+  Clock,
+  Loader2,
 } from 'lucide-react';
+import { zipSync } from 'fflate';
 import { BorderGlow } from '../Common/BorderGlow';
+
+
+function getFileIcon(fileName = '', mimeType = '') {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'avif'].includes(ext) || mimeType.startsWith('image/')) {
+    return <ImageIcon size={15} style={{ color: 'var(--accent-lime)' }} />;
+  }
+  if (['zip', 'rar', 'tar', 'gz', '7z', 'bz2'].includes(ext) || mimeType.includes('zip') || mimeType.includes('compressed')) {
+    return <Archive size={15} style={{ color: 'var(--accent-lime)' }} />;
+  }
+  if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext) || mimeType.startsWith('audio/')) {
+    return <Music size={15} style={{ color: 'var(--accent-lime)' }} />;
+  }
+  if (['mp4', 'mov', 'mkv', 'webm', 'avi'].includes(ext) || mimeType.startsWith('video/')) {
+    return <Video size={15} style={{ color: 'var(--accent-lime)' }} />;
+  }
+  if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'py', 'rs', 'go', 'cpp', 'c', 'sh', 'sql'].includes(ext)) {
+    return <Code size={15} style={{ color: 'var(--accent-lime)' }} />;
+  }
+  return <FileText size={15} style={{ color: 'var(--accent-lime)' }} />;
+}
 
 export function TransferVisualizer({ transferPayload, isHost, transferRole, onBlastAnother }) {
   const containerRef = useRef(null);
   const [copied, setCopied] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
 
   const {
-    fileInfo = { name: 'Unknown', size: 0, type: 'file' },
-    transferredBytes = 0,
+    isBatch = false,
+    totalFiles = 1,
     totalBytes = 0,
+    transferredBytes = 0,
     percentage = 0,
     speedMbps = '0.0',
     status = 'TRANSFERRING',
+    files = [],
+    activeFileIndex = 0,
+    currentFile = null,
+    fileInfo = { name: 'Unknown', size: 0, type: 'file' },
     downloadUrl,
     errorMessage,
   } = transferPayload || {};
@@ -59,6 +95,53 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
     }
   };
 
+  const handleDownloadZip = async () => {
+    const downloadableFiles = files.filter((f) => f.blob || f.downloadUrl);
+    if (downloadableFiles.length === 0) return;
+
+    setIsZipping(true);
+    try {
+      const zipEntries = {};
+      for (let i = 0; i < downloadableFiles.length; i++) {
+        const f = downloadableFiles[i];
+        let blob = f.blob;
+        if (!blob && f.downloadUrl) {
+          const res = await fetch(f.downloadUrl);
+          blob = await res.blob();
+        }
+
+        if (blob) {
+          const arrayBuf = await blob.arrayBuffer();
+          let name = f.name || `file_${i + 1}`;
+          if (zipEntries[name]) {
+            const dotIdx = name.lastIndexOf('.');
+            const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+            const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
+            let count = 1;
+            while (zipEntries[`${base}_${count}${ext}`]) count++;
+            name = `${base}_${count}${ext}`;
+          }
+          zipEntries[name] = new Uint8Array(arrayBuf);
+        }
+      }
+
+      const zipped = zipSync(zipEntries);
+      const zipBlob = new Blob([zipped], { type: 'application/zip' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `thrift_bundle_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      console.error('[THRIFT] Failed to generate zip:', err);
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
   const formatSize = (bytes) => {
     if (!bytes) return '0 B';
     const k = 1024;
@@ -72,16 +155,23 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
   const isSender = transferRole === 'SENDER' || ['SENDING', 'SENT'].includes(status);
   const isTransferring = !isCompleted && !isError;
 
+  const displayTitle = isBatch
+    ? `${totalFiles} FILE${totalFiles > 1 ? 'S' : ''} (${formatSize(totalBytes)})`
+    : fileInfo.name;
+
   const resultLabel = status === 'SENT'
-    ? (isLink ? 'LINK SENT SUCCESSFULLY' : hasTextContent ? 'TEXT SENT SUCCESSFULLY' : 'FILE SENT SUCCESSFULLY')
+    ? (isLink ? 'LINK SENT SUCCESSFULLY' : hasTextContent ? 'TEXT SENT SUCCESSFULLY' : isBatch ? `${totalFiles} FILES SENT SUCCESSFULLY` : 'FILE SENT SUCCESSFULLY')
     : status === 'RECEIVED'
-      ? (isLink ? 'LINK RECEIVED SUCCESSFULLY' : hasTextContent ? 'TEXT RECEIVED SUCCESSFULLY' : 'FILE RECEIVED SUCCESSFULLY')
+      ? (isLink ? 'LINK RECEIVED SUCCESSFULLY' : hasTextContent ? 'TEXT RECEIVED SUCCESSFULLY' : isBatch ? `${totalFiles} FILES RECEIVED SUCCESSFULLY` : 'FILE RECEIVED SUCCESSFULLY')
       : isError ? 'TRANSFER FAILED' : null;
 
   const animDuration = Math.max(0.4, 2.5 - Math.min(2.0, parseFloat(speedMbps) / 20));
   const linkHref = isLink && fileInfo.content
     ? (fileInfo.content.trim().startsWith('http') ? fileInfo.content.trim() : `https://${fileInfo.content.trim()}`)
     : null;
+
+  const hasMultipleFiles = isBatch && files.length > 1;
+  const completedDownloadableCount = files.filter((f) => f.downloadUrl || f.blob).length;
 
   return (
     <div style={{
@@ -109,17 +199,24 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
         
         <div style={{
           display: 'flex',
-          justifyContent: 'flex-start',
+          justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: '1rem',
           fontSize: '0.72rem',
         }} className="mono">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-primary)' }}>
             <ShieldCheck size={13} style={{ color: 'var(--accent-lime)' }} />
-            <span>DIRECT CONNECTION</span>
+            <span>DIRECT P2P CONNECTION</span>
           </div>
+          {isBatch && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--accent-lime)' }}>
+              <Files size={12} />
+              <span>BATCH TRANSFER ({totalFiles})</span>
+            </div>
+          )}
         </div>
 
+        {/* Sender and Receiver Graphic */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -193,7 +290,6 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                       filter: 'drop-shadow(0 0 6px var(--accent-lime))',
                     }}
                   />
-                  {/* Glowing moving photon */}
                   <circle
                     r="3.5"
                     fill="var(--accent-lime)"
@@ -271,7 +367,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           </div>
         </div>
 
-        {/* Progress Section */}
+        {/* Progress & Title Section */}
         <div style={{
           marginTop: '1.25rem',
           display: 'flex',
@@ -281,15 +377,21 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.15rem' }}>
-                {isLink ? (
+                {isBatch ? (
+                  <Files size={16} style={{ color: 'var(--accent-lime)' }} />
+                ) : isLink ? (
                   <LinkIcon size={16} style={{ color: 'var(--accent-lime)' }} />
                 ) : (
                   <FileText size={16} style={{ color: 'var(--accent-lime)' }} />
                 )}
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, wordBreak: 'break-all' }}>{fileInfo.name}</h3>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, wordBreak: 'break-all' }}>
+                  {displayTitle}
+                </h3>
               </div>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }} className="mono">
-                Total size: {formatSize(totalBytes)}
+                {isBatch
+                  ? `${formatSize(transferredBytes)} / ${formatSize(totalBytes)}`
+                  : `Total size: ${formatSize(totalBytes)}`}
               </span>
             </div>
             <div style={{ textAlign: 'right' }} className="mono">
@@ -304,7 +406,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             </div>
           </div>
 
-          {/* Progress Bar with Shimmer */}
+          {/* Progress Bar */}
           <div style={{
             width: '100%',
             height: '8px',
@@ -334,7 +436,13 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             fontSize: '0.7rem',
             color: 'var(--text-secondary)',
           }} className="mono">
-            <span>{formatSize(transferredBytes)} / {formatSize(totalBytes)}</span>
+            <span>
+              {isBatch && currentFile && isTransferring
+                ? `STREAMING (${activeFileIndex + 1}/${totalFiles}): ${currentFile.name}`
+                : isBatch
+                  ? `${totalFiles} Files`
+                  : `${formatSize(transferredBytes)} / ${formatSize(totalBytes)}`}
+            </span>
             <span>
               {resultLabel ? (
                 <span className="animate-success-pop" style={{
@@ -351,6 +459,98 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           </div>
 
           {isError && <p role="alert" style={{ margin: 0, color: 'var(--accent-red)', fontSize: '0.75rem' }} className="mono">{errorMessage || 'The transfer could not be completed.'}</p>}
+
+          {/* Multi-File Queue List */}
+          {isBatch && files.length > 0 && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+              marginTop: '0.5rem',
+              maxHeight: '180px',
+              overflowY: 'auto',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--bg-surface-border)',
+              borderRadius: '4px',
+              padding: '0.5rem',
+            }}>
+              {files.map((file, idx) => {
+                const fileDone = file.status === 'COMPLETED';
+                const fileActive = file.status === 'TRANSFERRING';
+
+
+                return (
+                  <div
+                    key={file.id || idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '0.4rem 0.6rem',
+                      background: fileActive ? 'rgba(183, 255, 90, 0.05)' : 'transparent',
+                      border: `1px solid ${fileActive ? 'rgba(183, 255, 90, 0.3)' : 'transparent'}`,
+                      borderRadius: '3px',
+                      fontSize: '0.75rem',
+                    }}
+                    className="mono"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', overflow: 'hidden', flex: 1 }}>
+                      {getFileIcon(file.name, file.type)}
+                      <span style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: fileActive ? 'var(--accent-lime)' : fileDone ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      }}>
+                        {file.name}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
+                        {formatSize(file.size)}
+                      </span>
+
+                      {fileDone ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <CheckCircle2 size={13} style={{ color: 'var(--accent-lime)' }} />
+                          {file.downloadUrl && (
+                            <a
+                              href={file.downloadUrl}
+                              download={file.name}
+                              className="border-glow-btn"
+                              style={{
+                                padding: '0.15rem 0.45rem',
+                                fontSize: '0.65rem',
+                                fontWeight: 700,
+                                textDecoration: 'none',
+                                color: 'var(--text-primary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.2rem',
+                              }}
+                              title="Download this file"
+                            >
+                              <Download size={11} /> GET
+                            </a>
+                          )}
+                        </div>
+                      ) : fileActive ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--accent-lime)' }}>
+                          <Loader2 size={12} className="animate-spin" />
+                          <span>{file.percentage || 0}%</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--text-muted)' }}>
+                          <Clock size={12} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Shared Text / Link Panel */}
           {fileInfo.content && (
@@ -440,15 +640,48 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
         </div>
       </div>
 
-      {/* Action Buttons with ReactBits Border Glow */}
+      {/* Action Buttons */}
       {(isCompleted || isError) && (
         <div className="animate-slide-up" style={{
           display: 'grid',
-          gridTemplateColumns: (isSender && fileInfo.content && !downloadUrl) ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
+          gridTemplateColumns: (hasMultipleFiles && completedDownloadableCount > 1 && !isSender) || (isSender && fileInfo.content && !downloadUrl) ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
           gap: '0.65rem',
           width: '100%',
         }}>
-          {downloadUrl && (
+          {/* Download All as ZIP (Receiver side for batch > 1) */}
+          {hasMultipleFiles && completedDownloadableCount > 1 && !isSender && (
+            <BorderGlow
+              as="button"
+              onClick={handleDownloadZip}
+              disabled={isZipping}
+              glowColor="var(--accent-lime)"
+              backgroundColor="var(--accent-lime)"
+              alwaysActive={true}
+              speed={2.6}
+              style={{ width: '100%' }}
+            >
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  color: 'var(--bg-primary)',
+                  letterSpacing: '0.06em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  width: '100%',
+                }}
+              >
+                {isZipping ? <Loader2 size={18} className="animate-spin" /> : <Archive size={18} className="icon-download" />}
+                {isZipping ? 'CREATING ZIP...' : `DOWNLOAD ALL (${completedDownloadableCount} AS .ZIP)`}
+              </div>
+            </BorderGlow>
+          )}
+
+          {/* Single File Direct Download */}
+          {!hasMultipleFiles && downloadUrl && (
             <BorderGlow
               as="a"
               href={downloadUrl}
@@ -478,7 +711,9 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
               </div>
             </BorderGlow>
           )}
-          {fileInfo.content && !downloadUrl && (
+
+          {/* Copy Text / Link Action */}
+          {fileInfo.content && !downloadUrl && !isBatch && (
             <BorderGlow
               as="button"
               type="button"
@@ -510,37 +745,38 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
               </div>
             </BorderGlow>
           )}
-          {(isSender || isError) && (
-            <BorderGlow
-              as="button"
-              onClick={onBlastAnother}
-              glowColor="var(--accent-lime)"
-              secondaryColor="#ffffff"
-              backgroundColor="var(--bg-surface)"
-              pointerTracked={true}
-              style={{ width: '100%' }}
+
+          {/* Transfer Another Action */}
+          <BorderGlow
+            as="button"
+            onClick={onBlastAnother}
+            glowColor="var(--accent-lime)"
+            secondaryColor="#ffffff"
+            backgroundColor="var(--bg-surface)"
+            pointerTracked={true}
+            style={{ width: '100%' }}
+          >
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                fontSize: '0.88rem',
+                fontWeight: 800,
+                color: 'var(--text-primary)',
+                letterSpacing: '0.06em',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.45rem',
+                width: '100%',
+              }}
             >
-              <div
-                style={{
-                  padding: '0.85rem 1rem',
-                  fontSize: '0.88rem',
-                  fontWeight: 800,
-                  color: 'var(--text-primary)',
-                  letterSpacing: '0.06em',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.45rem',
-                  width: '100%',
-                }}
-              >
-                <Zap size={18} className="icon-zap" />
-                TRANSFER ANOTHER
-              </div>
-            </BorderGlow>
-          )}
+              <Zap size={18} className="icon-zap" />
+              TRANSFER ANOTHER
+            </div>
+          </BorderGlow>
         </div>
       )}
     </div>
   );
 }
+

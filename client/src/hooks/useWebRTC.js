@@ -8,10 +8,13 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { createPeerConnection } from '../lib/webrtc/createPeerConnection.js';
 import { RTC_STATE } from '../lib/webrtc/constants.js';
 import {
+  createBatchCompleteMessage,
+  createBatchOfferMessage,
   createFileCompleteMessage,
   createFileOffer,
   createTextMessage,
 } from '../lib/webrtc/messages.js';
+
 
 const FILE_CHUNK_BYTES = 16 * 1024;
 const MAX_BUFFERED_BYTES = 512 * 1024;
@@ -250,78 +253,180 @@ export function useWebRTC({
     return sendData(createTextMessage(text));
   }, [sendData]);
 
-  // ─── Send a file as ordered binary chunks through the DataChannel ───
+  // ─── Send files (single or batch) sequentially through DataChannel / relay ───
 
-  const sendFile = useCallback(async (file, { onStart, onProgress, onError } = {}) => {
-    const peer = peerRef.current;
-    const channel = peer?.dataChannel;
+  const sendFiles = useCallback(async (filesInput, { onBatchStart, onFileStart, onProgress, onFileComplete, onBatchComplete, onError } = {}) => {
+    const rawFiles = Array.isArray(filesInput)
+      ? filesInput
+      : filesInput instanceof FileList
+        ? Array.from(filesInput)
+        : [filesInput];
 
-    // For relay mode, use WebSocket relay
-    if (isRelayFallback && sendRelayDataRef.current) {
-      if (!file || typeof file.slice !== 'function') {
-        console.warn('[THRIFT:RTC] Cannot send file — invalid file');
-        return false;
-      }
-
-      const { id, message } = createFileOffer(file);
-
-      try {
-        // Send file offer as text (encoded as binary for relay)
-        const encoder = new TextEncoder();
-        sendRelayDataRef.current(encoder.encode(message));
-        onStart?.({ id, name: file.name, size: file.size, type: file.type || 'application/octet-stream' });
-
-        let transferredBytes = 0;
-        for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
-          const chunk = await file.slice(offset, offset + FILE_CHUNK_BYTES).arrayBuffer();
-          sendRelayDataRef.current(new Uint8Array(chunk));
-          transferredBytes += chunk.byteLength;
-          onProgress?.(transferredBytes, file.size);
-
-          // Small delay to prevent overwhelming the WebSocket
-          if (transferredBytes % (MAX_BUFFERED_BYTES) === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 10));
-          }
-        }
-
-        sendRelayDataRef.current(encoder.encode(createFileCompleteMessage(id)));
-        return true;
-      } catch (error) {
-        console.error('[THRIFT:RTC] Relay file transfer failed:', error);
-        onError?.(error);
-        return false;
-      }
-    }
-
-    // Normal WebRTC DataChannel file transfer
-    if (!file || typeof file.slice !== 'function' || !channel || channel.readyState !== 'open') {
-      console.warn('[THRIFT:RTC] Cannot send file — DataChannel not open');
+    const files = rawFiles.filter((f) => f && typeof f.slice === 'function');
+    if (files.length === 0) {
+      console.warn('[THRIFT:RTC] Cannot send — no valid files provided');
       return false;
     }
 
-    const { id, message } = createFileOffer(file);
+    const peer = peerRef.current;
+    const channel = peer?.dataChannel;
+    const isRelay = isRelayFallback && Boolean(sendRelayDataRef.current);
+
+    if (!isRelay && (!channel || channel.readyState !== 'open')) {
+      console.warn('[THRIFT:RTC] Cannot send files — DataChannel not open');
+      return false;
+    }
+
+    const encoder = new TextEncoder();
+    const batchId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const totalFiles = files.length;
+    const totalBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
+
+    const fileMetaList = files.map((f, idx) => ({
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${idx}-${Math.random().toString(36).slice(2)}`,
+      name: f.name || `file_${idx + 1}`,
+      size: f.size || 0,
+      type: f.type || 'application/octet-stream',
+    }));
 
     try {
-      channel.send(message);
-      onStart?.({ id, name: file.name, size: file.size, type: file.type || 'application/octet-stream' });
+      // 1. Send BATCH_OFFER
+      const { message: batchOfferMsg } = createBatchOfferMessage({
+        batchId,
+        totalFiles,
+        totalBytes,
+        files: fileMetaList,
+      });
 
-      let transferredBytes = 0;
-      for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
-        while (channel.readyState === 'open' && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-
-        if (channel.readyState !== 'open') {
-          throw new Error('P2P connection closed during transfer');
-        }
-
-        const chunk = await file.slice(offset, offset + FILE_CHUNK_BYTES).arrayBuffer();
-        channel.send(chunk);
-        transferredBytes += chunk.byteLength;
-        onProgress?.(transferredBytes, file.size);
+      if (isRelay) {
+        sendRelayDataRef.current(encoder.encode(batchOfferMsg));
+      } else {
+        channel.send(batchOfferMsg);
       }
 
-      channel.send(createFileCompleteMessage(id));
+      onBatchStart?.({
+        batchId,
+        totalFiles,
+        totalBytes,
+        files: fileMetaList,
+      });
+
+      let overallTransferredBytes = 0;
+      let lastSpeedCalcTime = performance.now();
+      let lastSpeedBytes = 0;
+      let currentSpeedMbps = '0.0';
+
+      // 2. Stream files sequentially
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const meta = fileMetaList[i];
+
+        // Send FILE_OFFER
+        const { message: fileOfferMsg } = createFileOffer(meta, {
+          batchId,
+          fileIndex: i,
+          totalFiles,
+        });
+
+        if (isRelay) {
+          sendRelayDataRef.current(encoder.encode(fileOfferMsg));
+        } else {
+          channel.send(fileOfferMsg);
+        }
+
+        onFileStart?.({
+          ...meta,
+          fileIndex: i,
+          totalFiles,
+          batchId,
+        });
+
+        let fileTransferredBytes = 0;
+
+        for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
+          // Flow control backpressure for DataChannel
+          if (!isRelay) {
+            while (channel.readyState === 'open' && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+
+            if (channel.readyState !== 'open') {
+              throw new Error('P2P connection closed during file transfer');
+            }
+          }
+
+          const chunk = await file.slice(offset, offset + FILE_CHUNK_BYTES).arrayBuffer();
+
+          if (isRelay) {
+            sendRelayDataRef.current(new Uint8Array(chunk));
+            if (overallTransferredBytes % MAX_BUFFERED_BYTES === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+          } else {
+            channel.send(chunk);
+          }
+
+          fileTransferredBytes += chunk.byteLength;
+          overallTransferredBytes += chunk.byteLength;
+
+          // Calculate smoothed speed metric every 250ms
+          const now = performance.now();
+          const elapsed = now - lastSpeedCalcTime;
+          if (elapsed >= 250) {
+            const bytesSinceLast = overallTransferredBytes - lastSpeedBytes;
+            const bytesPerSec = (bytesSinceLast / elapsed) * 1000;
+            currentSpeedMbps = (bytesPerSec / (1024 * 1024)).toFixed(1);
+            lastSpeedCalcTime = now;
+            lastSpeedBytes = overallTransferredBytes;
+          }
+
+          onProgress?.({
+            fileId: meta.id,
+            fileIndex: i,
+            fileTransferredBytes,
+            fileTotalBytes: file.size,
+            overallTransferredBytes,
+            totalBatchBytes: totalBytes,
+            speedMbps: currentSpeedMbps,
+            filePercentage: file.size > 0 ? Math.min(100, Math.round((fileTransferredBytes / file.size) * 100)) : 100,
+            overallPercentage: totalBytes > 0 ? Math.min(100, Math.round((overallTransferredBytes / totalBytes) * 100)) : 100,
+          });
+        }
+
+        // Send FILE_COMPLETE
+        const fileCompleteMsg = createFileCompleteMessage(meta.id, { batchId, fileIndex: i });
+        if (isRelay) {
+          sendRelayDataRef.current(encoder.encode(fileCompleteMsg));
+        } else {
+          channel.send(fileCompleteMsg);
+        }
+
+        onFileComplete?.({
+          fileId: meta.id,
+          fileIndex: i,
+          ...meta,
+        });
+      }
+
+      // 3. Send BATCH_COMPLETE
+      const batchCompleteMsg = createBatchCompleteMessage(batchId, { totalFiles, totalBytes });
+      if (isRelay) {
+        sendRelayDataRef.current(encoder.encode(batchCompleteMsg));
+      } else {
+        channel.send(batchCompleteMsg);
+      }
+
+      onBatchComplete?.({
+        batchId,
+        totalFiles,
+        totalBytes,
+      });
+
       return true;
     } catch (error) {
       console.error('[THRIFT:RTC] File transfer failed:', error);
@@ -329,6 +434,10 @@ export function useWebRTC({
       return false;
     }
   }, [isRelayFallback]);
+
+  const sendFile = useCallback((file, options) => {
+    return sendFiles([file], options);
+  }, [sendFiles]);
 
   // ─── Clean up the connection ───
 
@@ -356,6 +465,8 @@ export function useWebRTC({
     sendData,
     sendText,
     sendFile,
+    sendFiles,
     cleanup,
   };
 }
+

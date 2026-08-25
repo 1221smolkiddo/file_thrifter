@@ -24,24 +24,53 @@ export function createRoleMessage(role) {
   return createMessage(DATA_MESSAGE_TYPE.ROLE, { role });
 }
 
-export function createFileOffer(fileInfo) {
-  const id = createMessageId();
+export function createBatchOfferMessage({ batchId = createMessageId(), totalFiles, totalBytes, files }) {
+  return {
+    batchId,
+    message: createMessage(DATA_MESSAGE_TYPE.BATCH_OFFER, {
+      batchId,
+      totalFiles,
+      totalBytes,
+      files,
+    }, batchId),
+  };
+}
+
+export function createFileOffer(fileInfo, { batchId, fileIndex, totalFiles } = {}) {
+  const id = fileInfo.id || createMessageId();
   return {
     id,
     message: createMessage(DATA_MESSAGE_TYPE.FILE_OFFER, {
       name: fileInfo.name,
       size: fileInfo.size,
       type: fileInfo.type || 'application/octet-stream',
+      batchId: batchId || null,
+      fileIndex: Number.isInteger(fileIndex) ? fileIndex : 0,
+      totalFiles: Number.isInteger(totalFiles) ? totalFiles : 1,
     }, id),
   };
 }
 
-export function createFileCompleteMessage(id) {
-  return createMessage(DATA_MESSAGE_TYPE.FILE_COMPLETE, {}, id);
+export function createFileCompleteMessage(id, { batchId, fileIndex } = {}) {
+  return createMessage(DATA_MESSAGE_TYPE.FILE_COMPLETE, {
+    batchId: batchId || null,
+    fileIndex: Number.isInteger(fileIndex) ? fileIndex : 0,
+  }, id);
 }
 
-export function createTransferAckMessage(id) {
-  return createMessage(DATA_MESSAGE_TYPE.TRANSFER_ACK, {}, id);
+export function createTransferAckMessage(id, { batchId, fileIndex } = {}) {
+  return createMessage(DATA_MESSAGE_TYPE.TRANSFER_ACK, {
+    batchId: batchId || null,
+    fileIndex: Number.isInteger(fileIndex) ? fileIndex : 0,
+  }, id);
+}
+
+export function createBatchCompleteMessage(batchId, { totalFiles, totalBytes } = {}) {
+  return createMessage(DATA_MESSAGE_TYPE.BATCH_COMPLETE, {
+    batchId,
+    totalFiles,
+    totalBytes,
+  }, batchId);
 }
 
 /**
@@ -63,6 +92,11 @@ export function parseDataMessage(data) {
         return typeof message.payload === 'string' ? message : null;
       case DATA_MESSAGE_TYPE.ROLE:
         return ['SENDER', 'RECEIVER'].includes(message.payload?.role) ? message : null;
+      case DATA_MESSAGE_TYPE.BATCH_OFFER:
+        return typeof message.payload?.batchId === 'string'
+          && Number.isFinite(message.payload?.totalFiles)
+          && Number.isFinite(message.payload?.totalBytes)
+          && Array.isArray(message.payload?.files) ? message : null;
       case DATA_MESSAGE_TYPE.FILE_OFFER:
         return typeof message.payload?.name === 'string'
           && Number.isFinite(message.payload?.size)
@@ -70,14 +104,15 @@ export function parseDataMessage(data) {
           && typeof message.payload?.type === 'string' ? message : null;
       case DATA_MESSAGE_TYPE.FILE_COMPLETE:
       case DATA_MESSAGE_TYPE.TRANSFER_ACK:
+      case DATA_MESSAGE_TYPE.BATCH_COMPLETE:
         return message;
       default:
         return null;
     }
   } catch {
-    // Binary data and malformed application payloads are handled by future
-    // file-transfer protocol work.
+    // Binary data and malformed application payloads
   }
 
   return null;
 }
+
