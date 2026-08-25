@@ -10,13 +10,21 @@ Data moves directly peer-to-peer using **WebRTC DataChannels**. The signaling se
 
 ## ✨ Features
 
+### 🚀 Transfer Capabilities & Multi-File Engine
+- **Multi-File Batch Sharing**: Select, stage, and sequentially stream multiple files over a single peer connection with SCTP backpressure control.
+- **Direct Individual Downloads**: One-click "DOWNLOAD ALL (N FILES)" initiates direct, native downloads for each file in original format with zero ZIP or folder overhead.
+- **Smart Clipboard Paste (`Ctrl+V` / `Cmd+V`)**: Copy files or screenshot images directly from your OS/browser and paste them to stage instantly. Pasting URLs or text automatically routes to the Link/Text panels.
+- **Full-Card Drag & Drop**: Drop files anywhere across the dropzone at any time—whether empty or already staging files—with real-time drop glow indicators.
+- **Per-File Arrival Timestamps**: Live transfer visualizer logs the arrival time of each finished file next to individual `GET` download buttons.
+- **Role-Aware Top Diagram**: Dynamic status badges (`SENDING FILES` / `RECEIVING FILES`) and device labels (`LAPTOP (YOU)` / `PHONE (YOU)`).
+
 ### 🔒 Core Security & Privacy
 - **True P2P Architecture**: Files stream directly browser-to-browser via DTLS/SCTP-encrypted WebRTC DataChannels.
 - **Zero Traces**: No accounts, no cloud buckets, no upload libraries, and no logs containing secrets, file names, or contents.
 - **Constant-Time Verification**: 256-bit pairing secret tokens verified with `crypto.timingSafeEqual` to prevent timing attacks.
 - **Privacy-Preserving Telemetry**: Clean in-memory counters; client IPs are SHA-256 hashed and never stored or logged raw.
 
-### 🚀 Resilience & Network Traversal
+### 🌐 Resilience & Network Traversal
 - **Reconnection Grace Period (30s)**: If a mobile screen sleeps or Wi-Fi drops, the session stays alive in memory. Reconnect tokens automatically restore the session upon network recovery without restarting.
 - **Same-Subnet Local Discovery**: Devices on the same Wi-Fi/subnet detect active local sessions while preserving zero-knowledge pairing security.
 - **E2EE WebSocket Relay Fallback**: When symmetric NATs or corporate firewalls completely block P2P WebRTC channels, THRIFT transparently falls back to an encrypted binary pipe through the signaling server (with per-session byte caps).
@@ -25,7 +33,9 @@ Data moves directly peer-to-peer using **WebRTC DataChannels**. The signaling se
 ### 🎨 UI/UX & Aesthetics
 - **Swiss Cyberpunk Dark Mode**: High-contrast, typography-driven interface with fluid spring micro-interactions.
 - **Continuous Orbiting Glow**: Conic-gradient orbiting border animations on the cryptographic QR generator card.
-- **Real-Time Transfer Visualizer**: Live speed metrics (MB/s), visual chunk progress bars, SHA-256 assembly verification, and two-way transfer acknowledgments.
+- **Fluid Modal Transitions**: Smooth slide-and-fade backdrop-blurred animations for connection requests.
+- **Live Transfer Visualizer**: Real-time throughput metrics (MB/s), visual chunk progress bars, SHA-256 assembly verification, and two-way transfer acknowledgments.
+
 
 ---
 
