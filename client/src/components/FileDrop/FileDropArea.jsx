@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { UploadCloud, Link as LinkIcon, ArrowRight, File, Plus, X, Files, Clipboard } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { UploadCloud, Link as LinkIcon, ArrowRight, File, Plus, X, Files, Clipboard, CheckCircle2 } from 'lucide-react';
 import { BorderGlow } from '../Common/BorderGlow';
 
 const formatSize = (bytes) => {
@@ -16,15 +16,23 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
   const [textInput, setTextInput] = useState('');
   const [linkInput, setLinkInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [pasteNotice, setPasteNotice] = useState('');
+  
+  const fileInputRef = useRef(null);
   const dragCounterRef = useRef(0);
+  const activeTabRef = useRef(activeTab);
 
-  const addFilesToStage = (newFiles) => {
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const addFilesToStage = useCallback((newFiles) => {
     if (!newFiles) return;
     const list = Array.isArray(newFiles) ? newFiles : Array.from(newFiles);
     const valid = list.filter((f) => f && (f instanceof Blob || (typeof f.size === 'number' && typeof f.name === 'string')));
     if (valid.length === 0) return;
     setStagedFiles((prev) => [...prev, ...valid]);
-  };
+  }, []);
 
   const removeStagedFile = (indexToRemove) => {
     setStagedFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove));
@@ -39,6 +47,10 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
       addFilesToStage(e.target.files);
       e.target.value = '';
     }
+  };
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
   };
 
   // ─── Universal Drag and Drop across the entire box ───
@@ -76,10 +88,68 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
     }
   };
 
-  // ─── Robust Smart Clipboard Paste (Ctrl+V / Cmd+V) ───
+  // ─── Master Clipboard Extraction ───
+
+  const showPasteFeedback = useCallback((msg) => {
+    setPasteNotice(msg);
+    setTimeout(() => setPasteNotice(''), 3000);
+  }, []);
+
+  const tryReadSystemClipboard = useCallback(async () => {
+    // Attempt 1: Modern Async Clipboard API for Files & Blobs
+    if (navigator.clipboard?.read) {
+      try {
+        const clipboardItems = await navigator.clipboard.read();
+        const filesFound = [];
+        for (const item of clipboardItems) {
+          for (const type of item.types) {
+            if (type.startsWith('image/') || type === 'application/pdf' || type === 'application/octet-stream' || type === 'application/zip') {
+              const blob = await item.getType(type);
+              const ext = type.split('/')[1] || 'png';
+              filesFound.push(new File([blob], `pasted_item_${Date.now()}.${ext}`, { type }));
+            }
+          }
+        }
+        if (filesFound.length > 0) {
+          setActiveTab('FILES');
+          addFilesToStage(filesFound);
+          showPasteFeedback(`✓ ${filesFound.length} FILE(S) PASTED FROM CLIPBOARD`);
+          return true;
+        }
+      } catch {
+        // Fall through to text read
+      }
+    }
+
+    // Attempt 2: Text / URL Read
+    if (navigator.clipboard?.readText) {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim()) {
+          const trimmed = text.trim();
+          const isUrl = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(trimmed);
+          if (isUrl) {
+            setActiveTab('LINK');
+            setLinkInput(trimmed);
+            showPasteFeedback('✓ LINK PASTED FROM CLIPBOARD');
+          } else {
+            setActiveTab('TEXT');
+            setTextInput((prev) => (prev ? `${prev}\n${text}` : text));
+            showPasteFeedback('✓ TEXT PASTED FROM CLIPBOARD');
+          }
+          return true;
+        }
+      } catch (err) {
+        console.warn('[THRIFT] Clipboard readText failed:', err);
+      }
+    }
+    return false;
+  }, [addFilesToStage, showPasteFeedback]);
+
+  // ─── Global Paste Event & Keydown Listeners ───
 
   useEffect(() => {
-    const handlePaste = (e) => {
+    const handlePasteEvent = (e) => {
       const target = e.target;
       const isTextInput = target && (
         (target.tagName === 'INPUT' && target.type !== 'file') ||
@@ -87,9 +157,8 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
         target.isContentEditable
       );
 
-      // 1. Check for files in clipboard (files copied in file manager, screenshot images, etc.)
+      // Check for file payload in event
       let filesFound = [];
-
       if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
         filesFound = Array.from(e.clipboardData.files);
       } else if (e.clipboardData?.items) {
@@ -114,10 +183,11 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
         e.stopPropagation();
         setActiveTab('FILES');
         addFilesToStage(filesFound);
+        showPasteFeedback(`✓ ${filesFound.length} FILE(S) PASTED`);
         return;
       }
 
-      // 2. Check for text or link in clipboard if not actively typing inside a text input/textarea
+      // If no file found and not inside active input, process text/link
       if (!isTextInput) {
         const text = e.clipboardData?.getData('text/plain') || e.clipboardData?.getData('text');
         if (text && text.trim()) {
@@ -129,61 +199,44 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
             e.stopPropagation();
             setActiveTab('LINK');
             setLinkInput(trimmed);
+            showPasteFeedback('✓ LINK PASTED');
           } else {
             e.preventDefault();
             e.stopPropagation();
             setActiveTab('TEXT');
             setTextInput((prev) => (prev ? `${prev}\n${text}` : text));
+            showPasteFeedback('✓ TEXT PASTED');
           }
         }
       }
     };
 
-    // Attach to document in capturing phase so it catches all paste events across the window
-    document.addEventListener('paste', handlePaste, true);
-    return () => document.removeEventListener('paste', handlePaste, true);
-  }, []);
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        const target = e.target;
+        const isTextInput = target && (
+          (target.tagName === 'INPUT' && target.type !== 'file') ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable
+        );
 
-  const handlePasteButtonClick = async () => {
-    try {
-      if (navigator.clipboard?.read) {
-        const items = await navigator.clipboard.read();
-        const filesFound = [];
-        for (const item of items) {
-          for (const type of item.types) {
-            if (type.startsWith('image/') || type === 'application/pdf' || type === 'application/octet-stream') {
-              const blob = await item.getType(type);
-              const ext = type.split('/')[1] || 'bin';
-              filesFound.push(new File([blob], `pasted_file_${Date.now()}.${ext}`, { type }));
-            }
-          }
-        }
-        if (filesFound.length > 0) {
-          setActiveTab('FILES');
-          addFilesToStage(filesFound);
-          return;
+        if (!isTextInput) {
+          // Trigger clipboard read if paste event does not fire automatically
+          setTimeout(() => {
+            tryReadSystemClipboard();
+          }, 50);
         }
       }
+    };
 
-      if (navigator.clipboard?.readText) {
-        const text = await navigator.clipboard.readText();
-        if (text && text.trim()) {
-          const trimmed = text.trim();
-          const isUrl = /^(?:https?:\/\/|www\.)[^\s]+$/i.test(trimmed);
-          if (isUrl) {
-            setActiveTab('LINK');
-            setLinkInput(trimmed);
-          } else {
-            setActiveTab('TEXT');
-            setTextInput((prev) => (prev ? `${prev}\n${text}` : text));
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[THRIFT] Clipboard read API notice:', err);
-    }
-  };
+    document.addEventListener('paste', handlePasteEvent, true);
+    window.addEventListener('keydown', handleKeyDown, true);
 
+    return () => {
+      document.removeEventListener('paste', handlePasteEvent, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [addFilesToStage, showPasteFeedback, tryReadSystemClipboard]);
 
   const handleSendStagedFiles = () => {
     if (stagedFiles.length === 0) return;
@@ -228,13 +281,22 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
         position: 'relative',
       }}
     >
+      {/* Hidden file input invoked via ref without capturing DOM focus */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
+
       {/* Editorial Tab Selector */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         borderBottom: '1px solid var(--bg-surface-border)',
-        paddingBottom: '0.5rem',
+        paddingBottom: '0.65rem',
       }}>
         <div style={{ display: 'flex', gap: '2rem' }}>
           {['FILES', 'TEXT', 'LINK'].map((tab) => (
@@ -264,26 +326,36 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
           ))}
         </div>
 
+        {/* Prominent, Enhanced Paste Button with clear border */}
         <button
           type="button"
-          onClick={handlePasteButtonClick}
-          className="border-glow-btn"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            color: 'var(--text-secondary)',
-            fontSize: '0.72rem',
-            padding: '0.2rem 0.55rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-          title="Paste files, text, or link from clipboard (Ctrl+V)"
+          onClick={tryReadSystemClipboard}
+          className="btn-paste-pill mono"
+          title="Paste files, images, text, or links from clipboard (Ctrl+V)"
         >
-          <Clipboard size={12} style={{ color: 'var(--accent-lime)' }} />
+          <Clipboard size={14} />
           <span>PASTE (CTRL+V)</span>
         </button>
       </div>
+
+      {/* Paste Feedback Toast */}
+      {pasteNotice && (
+        <div className="animate-slide-up" style={{
+          background: 'rgba(183, 255, 90, 0.12)',
+          border: '1px solid var(--accent-lime)',
+          borderRadius: '4px',
+          padding: '0.5rem 0.85rem',
+          fontSize: '0.78rem',
+          color: 'var(--accent-lime)',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+        }}>
+          <CheckCircle2 size={14} />
+          <span>{pasteNotice}</span>
+        </div>
+      )}
 
       {p2pNotice && (
         <p role="alert" style={{ margin: 0, color: 'var(--accent-red)', fontSize: '0.8rem' }} className="mono">
@@ -304,6 +376,7 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
               borderRadius="4px"
               glowIntensity={24}
               style={{ width: '100%' }}
+              onClick={openFilePicker}
             >
               <div
                 style={{
@@ -320,13 +393,6 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
                 }}
                 className="swiss-grid-bg"
               >
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleFileChange}
-                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', zIndex: 3 }}
-                />
-
                 <div style={{
                   width: '64px',
                   height: '64px',
@@ -496,25 +562,19 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
 
                 {/* Actions: Add more + Send Button */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="file"
-                      multiple
-                      onChange={handleFileChange}
-                      style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', zIndex: 2 }}
-                    />
-                    <div
-                      className="btn-surface"
-                      style={{
-                        padding: '0.85rem 1rem',
-                        fontSize: '0.85rem',
-                        letterSpacing: '0.05em',
-                        height: '100%',
-                      }}
-                    >
-                      <Plus size={16} /> ADD MORE
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={openFilePicker}
+                    className="btn-surface"
+                    style={{
+                      padding: '0.85rem 1rem',
+                      fontSize: '0.85rem',
+                      letterSpacing: '0.05em',
+                      height: '100%',
+                    }}
+                  >
+                    <Plus size={16} /> ADD MORE
+                  </button>
 
                   <BorderGlow
                     as="button"
@@ -651,5 +711,6 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
     </div>
   );
 }
+
 
 

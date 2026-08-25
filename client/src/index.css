@@ -257,6 +257,35 @@ a.border-glow-container:active {
   transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
 }
 
+.btn-paste-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--accent-lime);
+  background: var(--bg-surface);
+  border: 1.5px solid var(--accent-lime);
+  border-radius: 4px;
+  box-shadow: 0 0 12px rgba(183, 255, 90, 0.18);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-paste-pill:hover {
+  background: var(--accent-lime);
+  color: var(--bg-primary);
+  box-shadow: 0 0 20px var(--accent-lime-glow);
+  transform: translateY(-1px);
+}
+
+.btn-paste-pill:active {
+  transform: translateY(1px) scale(0.97);
+}
+
+
 .border-glow-btn {
   position: relative;
   z-index: 1;
