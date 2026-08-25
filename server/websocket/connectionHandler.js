@@ -2,10 +2,22 @@
 // WebSocket connection handler for THRIFT signaling server.
 // Routes parsed messages to the SessionManager with rate limiting and authorization.
 
+import crypto from 'crypto';
 import { CLIENT_MSG, SERVER_MSG, parseMessage, errorResponse } from './protocol.js';
 import config from '../config.js';
 import rateLimiter from '../security/rateLimiter.js';
 import logger from '../utils/logger.js';
+import metrics from '../monitoring/metrics.js';
+
+/**
+ * Hash a client IP for privacy-preserving local discovery.
+ * Uses SHA-256 — we never store or log raw IPs.
+ * @param {string} ip
+ * @returns {string}
+ */
+function hashIp(ip) {
+  return crypto.createHash('sha256').update(ip).digest('hex');
+}
 
 /**
  * Create a message handler for a WebSocket connection.
@@ -14,8 +26,18 @@ import logger from '../utils/logger.js';
  * @param {string} clientIp - The client's IP (for rate limiting)
  */
 export function createConnectionHandler(ws, sessionManager, clientIp) {
+  const ipHash = hashIp(clientIp);
+
   // Handle incoming messages
-  ws.on('message', (rawMessage) => {
+  ws.on('message', (rawMessage, isBinary) => {
+    metrics.increment('ws_messages_total');
+
+    // Binary messages are relay data — route directly without parsing
+    if (isBinary) {
+      handleRelayData(ws, sessionManager, clientIp, rawMessage);
+      return;
+    }
+
     // Enforce message size limit
     const messageBytes = typeof rawMessage === 'string'
       ? Buffer.byteLength(rawMessage, 'utf8')
@@ -41,7 +63,7 @@ export function createConnectionHandler(ws, sessionManager, clientIp) {
     try {
       switch (data.type) {
         case CLIENT_MSG.CREATE_SESSION:
-          handleCreateSession(ws, sessionManager, clientIp);
+          handleCreateSession(ws, sessionManager, clientIp, ipHash);
           break;
 
         case CLIENT_MSG.JOIN_SESSION:
@@ -69,6 +91,25 @@ export function createConnectionHandler(ws, sessionManager, clientIp) {
           ws.send(JSON.stringify({ type: SERVER_MSG.PONG }));
           break;
 
+        // ─── Reconnection ───
+        case CLIENT_MSG.RECONNECT:
+          handleReconnect(ws, sessionManager, clientIp, data);
+          break;
+
+        // ─── Local Discovery ───
+        case CLIENT_MSG.DISCOVER_LOCAL:
+          handleDiscoverLocal(ws, sessionManager, clientIp, ipHash);
+          break;
+
+        // ─── Relay Fallback ───
+        case CLIENT_MSG.RELAY_REQUEST:
+          handleRelayRequest(ws, sessionManager);
+          break;
+
+        case CLIENT_MSG.RELAY_END:
+          handleRelayEnd(ws, sessionManager);
+          break;
+
         default:
           ws.send(errorResponse('UNKNOWN_TYPE', 'Unknown message type.'));
           break;
@@ -93,10 +134,11 @@ export function createConnectionHandler(ws, sessionManager, clientIp) {
 
 // ─── Message Handlers ────────────────────────────────────────────
 
-function handleCreateSession(ws, sessionManager, clientIp) {
+function handleCreateSession(ws, sessionManager, clientIp, ipHash) {
   // Rate limit
   const rl = rateLimiter.check('CREATE_SESSION', clientIp, config.RATE_LIMIT_CREATE_SESSION);
   if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
     ws.send(errorResponse('RATE_LIMITED', 'Too many session creation attempts. Please wait.'));
     return;
   }
@@ -108,7 +150,7 @@ function handleCreateSession(ws, sessionManager, clientIp) {
     return;
   }
 
-  const { displayId, secret, expiresAt } = sessionManager.createSession(ws);
+  const { displayId, secret, expiresAt } = sessionManager.createSession(ws, ipHash);
 
   ws.send(JSON.stringify({
     type: SERVER_MSG.SESSION_CREATED,
@@ -122,6 +164,7 @@ function handleJoinSession(ws, sessionManager, clientIp, data) {
   // Rate limit join attempts
   const rl = rateLimiter.check('JOIN_SESSION', clientIp, config.RATE_LIMIT_JOIN_SESSION);
   if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
     ws.send(errorResponse('RATE_LIMITED', 'Too many join attempts. Please wait.'));
     return;
   }
@@ -142,6 +185,7 @@ function handleJoinSession(ws, sessionManager, clientIp, data) {
     if (result.error === 'INVALID_TOKEN') {
       const failRl = rateLimiter.recordFailure(clientIp, config.RATE_LIMIT_INVALID_TOKEN);
       if (!failRl.allowed) {
+        metrics.increment('rate_limit_hits');
         ws.send(errorResponse('RATE_LIMITED', 'Too many failed attempts. Please wait.'));
         return;
       }
@@ -168,6 +212,13 @@ function handleAcceptConnection(ws, sessionManager) {
   const success = sessionManager.acceptConnection(binding.displayId, ws);
   if (!success) {
     ws.send(errorResponse('ACCEPT_FAILED', 'No pending connection request to accept.'));
+    return;
+  }
+
+  // After successful connection, send reconnect tokens to both peers
+  const session = sessionManager.getSession(binding.displayId);
+  if (session) {
+    sessionManager.generateReconnectTokens(session);
   }
   // On success, SessionManager sends SESSION_CONNECTED to both peers
 }
@@ -189,6 +240,7 @@ function handleWebRtcSignal(ws, sessionManager, clientIp, data) {
   // Rate limit signaling messages
   const rl = rateLimiter.check('SIGNALING', clientIp, config.RATE_LIMIT_SIGNALING);
   if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
     ws.send(errorResponse('RATE_LIMITED', 'Signaling rate limit exceeded.'));
     return;
   }
@@ -209,4 +261,90 @@ function handleWebRtcSignal(ws, sessionManager, clientIp, data) {
 function handleDisconnect(ws, sessionManager) {
   sessionManager.handleDisconnect(ws);
   ws.close();
+}
+
+// ─── Reconnection Handler ────────────────────────────────────────
+
+function handleReconnect(ws, sessionManager, clientIp, data) {
+  // Rate limit reconnect attempts
+  const rl = rateLimiter.check('RECONNECT', clientIp, config.RATE_LIMIT_JOIN_SESSION);
+  if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
+    ws.send(errorResponse('RATE_LIMITED', 'Too many reconnect attempts. Please wait.'));
+    return;
+  }
+
+  // Ensure this socket isn't already in a session
+  const existing = sessionManager.getBinding(ws);
+  if (existing) {
+    ws.send(errorResponse('ALREADY_IN_SESSION', 'You are already in a session.'));
+    return;
+  }
+
+  const result = sessionManager.reconnectSession(data.sessionId, data.reconnectToken, ws);
+  if (!result.success) {
+    ws.send(errorResponse('RECONNECT_FAILED', result.error));
+  }
+  // On success, SessionManager sends RECONNECTED to both peers
+}
+
+// ─── Local Discovery Handler ─────────────────────────────────────
+
+function handleDiscoverLocal(ws, sessionManager, clientIp, ipHash) {
+  // Rate limit discovery requests
+  const rl = rateLimiter.check('DISCOVER', clientIp, config.RATE_LIMIT_CREATE_SESSION);
+  if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
+    ws.send(errorResponse('RATE_LIMITED', 'Too many discovery requests. Please wait.'));
+    return;
+  }
+
+  const sessions = sessionManager.discoverLocal(ipHash);
+
+  ws.send(JSON.stringify({
+    type: SERVER_MSG.LOCAL_SESSIONS,
+    sessions, // Array of { displayId } — no tokens, no secrets
+    count: sessions.length,
+  }));
+}
+
+// ─── Relay Fallback Handlers ─────────────────────────────────────
+
+function handleRelayRequest(ws, sessionManager) {
+  const binding = sessionManager.getBinding(ws);
+  if (!binding) {
+    ws.send(errorResponse('UNAUTHORIZED', 'Not in an active session.'));
+    return;
+  }
+
+  const result = sessionManager.activateRelay(ws);
+  if (!result.success) {
+    ws.send(JSON.stringify({ type: SERVER_MSG.RELAY_REJECTED, reason: result.error }));
+  }
+  // On success, SessionManager sends RELAY_READY to both peers
+}
+
+function handleRelayData(ws, sessionManager, clientIp, data) {
+  // Rate limit relay data
+  const rl = rateLimiter.check('RELAY_DATA', clientIp, config.RATE_LIMIT_RELAY);
+  if (!rl.allowed) {
+    metrics.increment('rate_limit_hits');
+    // Don't send error for binary relay — just drop silently
+    return;
+  }
+
+  const result = sessionManager.routeRelayData(ws, data);
+  if (!result.success && result.error === 'Relay byte limit exceeded') {
+    ws.send(JSON.stringify({ type: SERVER_MSG.RELAY_ENDED, reason: 'byte_limit' }));
+  }
+}
+
+function handleRelayEnd(ws, sessionManager) {
+  const binding = sessionManager.getBinding(ws);
+  if (!binding) return;
+
+  const session = sessionManager.getSession(binding.displayId);
+  if (session && session.relayActive) {
+    sessionManager.deactivateRelay(session);
+  }
 }

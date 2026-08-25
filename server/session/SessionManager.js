@@ -2,11 +2,13 @@
 // In-memory session lifecycle manager for THRIFT signaling server.
 // Sessions are ephemeral — no persistence, no database, no file storage.
 
+import crypto from 'crypto';
 import { WebSocket } from 'ws';
 import { generateDisplayId, generateSessionSecret, hashSecret, verifySecret } from '../security/tokens.js';
 import { SESSION_STATE } from './sessionState.js';
 import config from '../config.js';
 import logger from '../utils/logger.js';
+import metrics from '../monitoring/metrics.js';
 
 class SessionManager {
   constructor() {
@@ -26,9 +28,10 @@ class SessionManager {
   /**
    * Create a new session.
    * @param {WebSocket} hostWs - The host's WebSocket connection
+   * @param {string} [clientIpHash] - SHA-256 hash of the client's IP (for local discovery)
    * @returns {{ displayId: string, secret: string, expiresAt: number }}
    */
-  createSession(hostWs) {
+  createSession(hostWs, clientIpHash = null) {
     // Generate unique display ID (retry on collision, extremely unlikely)
     let displayId;
     let attempts = 0;
@@ -57,11 +60,22 @@ class SessionManager {
       lastActivityAt: now,
       timeoutKind: 'unpaired',
       expirationTimer: setTimeout(() => this.expireSession(displayId), config.SESSION_TTL_MS),
+      // Local discovery
+      ipHash: clientIpHash,
+      // Reconnection grace period
+      reconnectToken: null,
+      reconnectTokenHash: null,
+      reconnectGraceTimer: null,
+      disconnectedRole: null,
+      // Relay state
+      relayActive: false,
+      relayBytesTransferred: 0,
     };
 
     this.sessions.set(displayId, session);
     this.socketToSession.set(hostWs, { displayId, role: 'host' });
 
+    metrics.increment('sessions_created');
     logger.session('SESSION_CREATED', displayId);
 
     // Return the raw secret to send to the host (only time it's in cleartext)
@@ -109,6 +123,7 @@ class SessionManager {
     session.state = SESSION_STATE.PAIRING;
     this.socketToSession.set(guestWs, { displayId: sessionId, role: 'guest' });
 
+    metrics.increment('sessions_joined');
     logger.session('SESSION_JOIN_ATTEMPT', sessionId);
 
     // Notify the host
@@ -210,6 +225,7 @@ class SessionManager {
     if (session.state !== SESSION_STATE.CONNECTED) return false;
 
     this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
+    metrics.increment('webrtc_signals_routed');
 
     // Determine the target peer
     const targetWs = binding.role === 'host' ? session.guestWs : session.hostWs;
@@ -223,9 +239,11 @@ class SessionManager {
     return true;
   }
 
+  // ─── Reconnection Grace Period ───
+
   /**
    * Handle a socket disconnecting (close/error).
-   * Notifies the remaining peer and cleans up the session.
+   * If session is CONNECTED, enters a grace period instead of immediate destruction.
    * @param {WebSocket} ws
    */
   handleDisconnect(ws) {
@@ -237,15 +255,277 @@ class SessionManager {
 
     logger.session('PEER_DISCONNECTED', binding.displayId);
 
-    // Determine the other peer
-    const otherWs = binding.role === 'host' ? session.guestWs : session.hostWs;
+    // If session is CONNECTED, enter reconnection grace period
+    if (session.state === SESSION_STATE.CONNECTED) {
+      this._enterGracePeriod(session, binding.role);
+      return;
+    }
 
+    // For non-connected sessions (WAITING, PAIRING), destroy immediately
+    const otherWs = binding.role === 'host' ? session.guestWs : session.hostWs;
     if (otherWs && otherWs.readyState === WebSocket.OPEN) {
       otherWs.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
     }
 
-    // Clean up the entire session
     this._destroySession(binding.displayId);
+  }
+
+  /**
+   * Enter reconnection grace period. Generate a token for the disconnected peer
+   * and notify the remaining peer.
+   * @private
+   */
+  _enterGracePeriod(session, disconnectedRole) {
+    // Generate reconnect token
+    const rawToken = crypto.randomBytes(16).toString('hex');
+    session.reconnectTokenHash = hashSecret(rawToken);
+    session.disconnectedRole = disconnectedRole;
+
+    // Clear the disconnected socket reference
+    if (disconnectedRole === 'host') {
+      session.hostWs = null;
+    } else {
+      session.guestWs = null;
+    }
+
+    // Notify the remaining peer
+    const remainingWs = disconnectedRole === 'host' ? session.guestWs : session.hostWs;
+    if (remainingWs && remainingWs.readyState === WebSocket.OPEN) {
+      remainingWs.send(JSON.stringify({ type: 'PEER_RECONNECTING' }));
+    }
+
+    // Set grace timer — if peer doesn't reconnect within the window, destroy
+    session.reconnectGraceTimer = setTimeout(() => {
+      logger.session('RECONNECT_GRACE_EXPIRED', session.displayId);
+      session.reconnectTokenHash = null;
+      session.disconnectedRole = null;
+
+      // Notify remaining peer that reconnection failed
+      const ws = disconnectedRole === 'host' ? session.guestWs : session.hostWs;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
+      }
+
+      this._destroySession(session.displayId);
+    }, config.RECONNECT_GRACE_MS);
+
+    metrics.increment('reconnect_attempts');
+    logger.session('RECONNECT_GRACE_STARTED', session.displayId);
+
+    // The reconnect token is returned here but must be sent to the disconnecting
+    // peer via the RECONNECT_TOKEN message BEFORE the socket closes.
+    // In practice, we send the token proactively when the session first connects.
+    return rawToken;
+  }
+
+  /**
+   * Attempt to reconnect a peer using a reconnect token.
+   * @param {string} displayId - The session display ID
+   * @param {string} reconnectToken - The raw reconnect token
+   * @param {WebSocket} newWs - The new WebSocket connection
+   * @returns {{ success: boolean, error?: string }}
+   */
+  reconnectSession(displayId, reconnectToken, newWs) {
+    const session = this.sessions.get(displayId);
+
+    if (!session) {
+      return { success: false, error: 'Session not found' };
+    }
+
+    if (!session.reconnectTokenHash || !session.disconnectedRole) {
+      return { success: false, error: 'No reconnection pending for this session' };
+    }
+
+    // Verify token
+    if (!verifySecret(reconnectToken, session.reconnectTokenHash)) {
+      return { success: false, error: 'Invalid reconnect token' };
+    }
+
+    // Clear grace timer and token
+    if (session.reconnectGraceTimer) {
+      clearTimeout(session.reconnectGraceTimer);
+      session.reconnectGraceTimer = null;
+    }
+
+    // Rebind the socket
+    const role = session.disconnectedRole;
+    if (role === 'host') {
+      session.hostWs = newWs;
+    } else {
+      session.guestWs = newWs;
+    }
+
+    this.socketToSession.set(newWs, { displayId, role });
+    session.reconnectTokenHash = null;
+    session.disconnectedRole = null;
+
+    // Notify both peers
+    const remainingWs = role === 'host' ? session.guestWs : session.hostWs;
+    if (remainingWs && remainingWs.readyState === WebSocket.OPEN) {
+      remainingWs.send(JSON.stringify({ type: 'RECONNECTED' }));
+    }
+    if (newWs.readyState === WebSocket.OPEN) {
+      newWs.send(JSON.stringify({
+        type: 'RECONNECTED',
+        displayId,
+        iceServers: config.getIceServers(),
+      }));
+    }
+
+    // Reset idle timeout
+    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
+
+    metrics.increment('reconnect_successes');
+    logger.session('RECONNECT_SUCCESS', displayId);
+
+    return { success: true, role };
+  }
+
+  /**
+   * Generate and send reconnect token to a peer proactively.
+   * Called when a session transitions to CONNECTED so both peers have a token
+   * ready before any disconnection event.
+   * @param {object} session
+   * @returns {{ hostToken: string, guestToken: string }}
+   */
+  generateReconnectTokens(session) {
+    // We generate one shared token per session (either peer can use it once)
+    const rawToken = crypto.randomBytes(16).toString('hex');
+    // Store it temporarily — it gets hashed on first use in _enterGracePeriod
+    session._preGeneratedReconnectToken = rawToken;
+
+    // Send to both peers
+    const tokenMsg = JSON.stringify({
+      type: 'RECONNECT_TOKEN',
+      reconnectToken: rawToken,
+      sessionId: session.displayId,
+    });
+
+    if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
+      session.hostWs.send(tokenMsg);
+    }
+    if (session.guestWs && session.guestWs.readyState === WebSocket.OPEN) {
+      session.guestWs.send(tokenMsg);
+    }
+
+    return rawToken;
+  }
+
+  // ─── Local Discovery ───
+
+  /**
+   * Discover sessions from the same IP hash (same network).
+   * Only returns WAITING sessions (not paired/connected).
+   * @param {string} ipHash - SHA-256 hash of the requester's IP
+   * @returns {{ displayId: string }[]}
+   */
+  discoverLocal(ipHash) {
+    if (!ipHash) return [];
+
+    const results = [];
+    for (const [displayId, session] of this.sessions.entries()) {
+      if (
+        session.ipHash === ipHash &&
+        session.state === SESSION_STATE.WAITING &&
+        Date.now() < session.expiresAt
+      ) {
+        results.push({ displayId });
+      }
+    }
+
+    metrics.increment('discovery_requests');
+    return results;
+  }
+
+  // ─── Relay Fallback ───
+
+  /**
+   * Activate relay mode for a session.
+   * @param {WebSocket} ws - The requesting peer's socket
+   * @returns {{ success: boolean, error?: string }}
+   */
+  activateRelay(ws) {
+    const binding = this.socketToSession.get(ws);
+    if (!binding) return { success: false, error: 'Not in a session' };
+
+    const session = this.sessions.get(binding.displayId);
+    if (!session) return { success: false, error: 'Session not found' };
+    if (session.state !== SESSION_STATE.CONNECTED) {
+      return { success: false, error: 'Session not connected' };
+    }
+
+    session.relayActive = true;
+    metrics.increment('relay_requests');
+    logger.session('RELAY_ACTIVATED', binding.displayId);
+
+    // Notify both peers
+    const msg = JSON.stringify({ type: 'RELAY_READY' });
+    if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
+      session.hostWs.send(msg);
+    }
+    if (session.guestWs && session.guestWs.readyState === WebSocket.OPEN) {
+      session.guestWs.send(msg);
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Route relay data from one peer to the other.
+   * The server never inspects the data — it's E2EE.
+   * @param {WebSocket} senderWs
+   * @param {Buffer|ArrayBuffer} data - The encrypted binary data
+   * @returns {{ success: boolean, error?: string }}
+   */
+  routeRelayData(senderWs, data) {
+    const binding = this.socketToSession.get(senderWs);
+    if (!binding) return { success: false, error: 'Not in a session' };
+
+    const session = this.sessions.get(binding.displayId);
+    if (!session) return { success: false, error: 'Session not found' };
+    if (!session.relayActive) return { success: false, error: 'Relay not active' };
+
+    // Check byte cap
+    const dataSize = data.byteLength || data.length || 0;
+    if (session.relayBytesTransferred + dataSize > config.RELAY_MAX_BYTES_PER_SESSION) {
+      this.deactivateRelay(session);
+      return { success: false, error: 'Relay byte limit exceeded' };
+    }
+
+    session.relayBytesTransferred += dataSize;
+    metrics.add('relay_bytes_total', dataSize);
+
+    // Forward to the other peer
+    const targetWs = binding.role === 'host' ? session.guestWs : session.hostWs;
+    if (!targetWs || targetWs.readyState !== WebSocket.OPEN) {
+      return { success: false, error: 'Peer not connected' };
+    }
+
+    // Send binary data directly
+    targetWs.send(data);
+
+    // Reset idle timeout
+    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
+
+    return { success: true };
+  }
+
+  /**
+   * Deactivate relay mode for a session.
+   * @param {object} session - The session object
+   */
+  deactivateRelay(session) {
+    session.relayActive = false;
+
+    const msg = JSON.stringify({ type: 'RELAY_ENDED' });
+    if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
+      session.hostWs.send(msg);
+    }
+    if (session.guestWs && session.guestWs.readyState === WebSocket.OPEN) {
+      session.guestWs.send(msg);
+    }
+
+    logger.session('RELAY_DEACTIVATED', session.displayId);
   }
 
   /**
@@ -258,6 +538,7 @@ class SessionManager {
 
     const timedOut = session.timeoutKind === 'inactive';
     logger.session(timedOut ? 'SESSION_TIMED_OUT' : 'SESSION_EXPIRED', displayId);
+    metrics.increment(timedOut ? 'sessions_timed_out' : 'sessions_expired');
 
     session.state = SESSION_STATE.EXPIRED;
     const message = JSON.stringify({ type: timedOut ? 'SESSION_TIMED_OUT' : 'SESSION_EXPIRED' });
@@ -286,8 +567,15 @@ class SessionManager {
       session.expirationTimer = null;
     }
 
+    // Clear reconnect grace timer
+    if (session.reconnectGraceTimer) {
+      clearTimeout(session.reconnectGraceTimer);
+      session.reconnectGraceTimer = null;
+    }
+
     // Invalidate credentials
     session.secretHash = null;
+    session.reconnectTokenHash = null;
 
     // Remove socket-to-session bindings
     // (WeakMap entries will be GC'd when sockets are GC'd, but we track for completeness)

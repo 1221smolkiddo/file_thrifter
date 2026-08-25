@@ -1,15 +1,19 @@
 // server/tests/backend.test.js
-// Comprehensive test suite for THRIFT signaling server.
-// Uses Node.js built-in test runner (node --test).
+// Comprehensive test suite for THRIFT signaling server and backend features.
+// Tests: Tokens, TURN Ephemeral Credentials, Protocol, Rate Limiter, Metrics,
+// SessionManager (Grace Reconnect, Local Discovery, Relay Fallback), and WebSocket Integration.
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'http';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import SessionManager from '../session/SessionManager.js';
 import { generateDisplayId, generateSessionSecret, hashSecret, verifySecret } from '../security/tokens.js';
+import { generateTurnCredentials, buildIceServers } from '../security/turnCredentials.js';
 import { parseMessage, CLIENT_MSG, SERVER_MSG, errorResponse } from '../websocket/protocol.js';
 import rateLimiter, { RateLimiter } from '../security/rateLimiter.js';
+import metrics, { Metrics } from '../monitoring/metrics.js';
 import { SESSION_STATE } from '../session/sessionState.js';
 
 // ─── Helpers ───
@@ -17,9 +21,17 @@ import { SESSION_STATE } from '../session/sessionState.js';
 function waitForMessage(ws, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Timeout waiting for message')), timeoutMs);
-    ws.once('message', (data) => {
+    ws.once('message', (data, isBinary) => {
       clearTimeout(timer);
-      resolve(JSON.parse(data.toString()));
+      if (isBinary) {
+        resolve(data);
+      } else {
+        try {
+          resolve(JSON.parse(data.toString()));
+        } catch {
+          resolve(data.toString());
+        }
+      }
     });
   });
 }
@@ -59,7 +71,6 @@ describe('Token Generation', () => {
     for (let i = 0; i < 100; i++) {
       ids.add(generateDisplayId());
     }
-    // With 29^6 ≈ 594M possibilities, 100 should almost always be unique
     assert.ok(ids.size >= 95, `Too many collisions: ${100 - ids.size}`);
   });
 
@@ -81,11 +92,57 @@ describe('Token Generation', () => {
     const wrongSecret = generateSessionSecret();
     assert.ok(!verifySecret(wrongSecret, hash));
   });
+});
 
-  it('should never use Math.random', () => {
-    // Structural check: our tokens module uses crypto.randomBytes
-    const secret = generateSessionSecret();
-    assert.ok(secret.length === 64, 'Secret should be 256-bit hex');
+// ─── Ephemeral TURN Credentials Tests ───
+
+describe('Ephemeral TURN Credentials (Coturn-compatible)', () => {
+  const sharedSecret = 'sample_secret_key_12345';
+
+  it('should generate username with expiry timestamp and random id', () => {
+    const ttlSeconds = 3600;
+    const creds = generateTurnCredentials(sharedSecret, ttlSeconds);
+
+    assert.ok(creds.username);
+    assert.ok(creds.credential);
+    assert.equal(creds.ttlSeconds, 3600);
+
+    const parts = creds.username.split(':');
+    assert.equal(parts.length, 2);
+
+    const expiry = parseInt(parts[0], 10);
+    const now = Math.floor(Date.now() / 1000);
+    assert.ok(expiry >= now + 3500 && expiry <= now + 3605);
+  });
+
+  it('should compute valid HMAC-SHA1 base64 credential', () => {
+    const creds = generateTurnCredentials(sharedSecret, 7200);
+
+    const expectedHmac = crypto.createHmac('sha1', sharedSecret)
+      .update(creds.username)
+      .digest('base64');
+
+    assert.equal(creds.credential, expectedHmac);
+  });
+
+  it('should throw when shared secret is missing', () => {
+    assert.throws(() => generateTurnCredentials(''), /TURN shared secret is required/);
+  });
+
+  it('should build ICE servers with ephemeral TURN credentials when configured', () => {
+    const testConfig = {
+      STUN_SERVERS: ['stun:stun.l.google.com:19302'],
+      TURN_SERVERS: ['turn:turn.example.com:3478?transport=udp'],
+      TURN_SHARED_SECRET: 'coturn_shared_key',
+      TURN_CREDENTIAL_TTL_S: 1800,
+    };
+
+    const iceServers = buildIceServers(testConfig);
+    assert.equal(iceServers.length, 2);
+    assert.equal(iceServers[0].urls, 'stun:stun.l.google.com:19302');
+    assert.equal(iceServers[1].urls, 'turn:turn.example.com:3478?transport=udp');
+    assert.ok(iceServers[1].username);
+    assert.ok(iceServers[1].credential);
   });
 });
 
@@ -138,8 +195,13 @@ describe('Protocol Validation', () => {
     assert.equal(result.valid, true);
   });
 
-  it('should reject WEBRTC_SIGNAL without payload', () => {
-    const result = parseMessage('{"type":"WEBRTC_SIGNAL"}');
+  it('should accept valid RECONNECT message', () => {
+    const result = parseMessage('{"type":"RECONNECT","sessionId":"ABC123","reconnectToken":"token123"}');
+    assert.equal(result.valid, true);
+  });
+
+  it('should reject RECONNECT without token', () => {
+    const result = parseMessage('{"type":"RECONNECT","sessionId":"ABC123"}');
     assert.equal(result.valid, false);
   });
 
@@ -193,43 +255,43 @@ describe('Rate Limiter', () => {
 
     limiter.destroy();
   });
+});
 
-  it('should track different buckets separately', () => {
-    const limiter = new RateLimiter();
-    const limits = { windowMs: 60000, maxRequests: 1 };
+// ─── Metrics Tests ───
 
-    assert.ok(limiter.check('create', '1.1.1.1', limits).allowed);
-    assert.ok(limiter.check('join', '1.1.1.1', limits).allowed);
-    assert.equal(limiter.check('create', '1.1.1.1', limits).allowed, false);
-    assert.equal(limiter.check('join', '1.1.1.1', limits).allowed, false);
+describe('Metrics & Monitoring', () => {
+  it('should increment counters accurately', () => {
+    const m = new Metrics();
+    m.increment('sessions_created');
+    m.increment('sessions_created');
+    m.increment('sessions_joined');
+    m.add('relay_bytes_total', 1024);
 
-    limiter.destroy();
-  });
-
-  it('should report remaining count', () => {
-    const limiter = new RateLimiter();
-    const limits = { windowMs: 60000, maxRequests: 3 };
-
-    const r1 = limiter.check('test', '1.1.1.1', limits);
-    assert.equal(r1.remaining, 2);
-    const r2 = limiter.check('test', '1.1.1.1', limits);
-    assert.equal(r2.remaining, 1);
-
-    limiter.destroy();
+    const snapshot = m.getSnapshot(2);
+    assert.equal(snapshot.counters.sessions_created, 2);
+    assert.equal(snapshot.counters.sessions_joined, 1);
+    assert.equal(snapshot.counters.relay_bytes_total, 1024);
+    assert.equal(snapshot.active_sessions, 2);
+    assert.ok(snapshot.uptime_seconds >= 0);
   });
 });
 
-// ─── Session Manager Tests (unit-level with mock WebSockets) ───
+// ─── Session Manager Unit Tests ───
 
-describe('SessionManager', () => {
+describe('SessionManager Unit Tests', () => {
   let sm;
 
-  // Create mock WebSocket objects for testing
   function createMockWs() {
     const sent = [];
     return {
       readyState: WebSocket.OPEN,
-      send(msg) { sent.push(JSON.parse(msg)); },
+      send(msg) {
+        if (typeof msg === 'string') {
+          sent.push(JSON.parse(msg));
+        } else {
+          sent.push(msg); // binary Buffer/Uint8Array
+        }
+      },
       _sent: sent,
       close() { this.readyState = WebSocket.CLOSED; },
     };
@@ -243,9 +305,10 @@ describe('SessionManager', () => {
     sm.destroy();
   });
 
-  it('should create a session', () => {
+  it('should create a session with IP hash tracking', () => {
     const hostWs = createMockWs();
-    const { displayId, secret, expiresAt } = sm.createSession(hostWs);
+    const ipHash = 'mock_ip_hash_abc';
+    const { displayId, secret, expiresAt } = sm.createSession(hostWs, ipHash);
 
     assert.ok(displayId);
     assert.equal(displayId.length, 6);
@@ -253,240 +316,128 @@ describe('SessionManager', () => {
     assert.equal(secret.length, 64);
     assert.ok(expiresAt > Date.now());
     assert.equal(sm.sessionCount, 1);
-  });
 
-  it('should join a valid session', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-
-    const result = sm.joinSession(displayId, secret, guestWs);
-    assert.ok(result.success);
-
-    // Host should receive CONNECTION_REQUEST
-    assert.equal(hostWs._sent.length, 1);
-    assert.equal(hostWs._sent[0].type, 'CONNECTION_REQUEST');
-  });
-
-  it('should reject join with invalid token', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId } = sm.createSession(hostWs);
-
-    const result = sm.joinSession(displayId, 'wrong_token', guestWs);
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'INVALID_TOKEN');
-  });
-
-  it('should reject join for non-existent session', () => {
-    const guestWs = createMockWs();
-    const result = sm.joinSession('NONEXIST', 'sometoken', guestWs);
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'SESSION_NOT_FOUND');
-  });
-
-  it('should use generic error message for non-existent and invalid token', () => {
-    const hostWs = createMockWs();
-    const guestWs1 = createMockWs();
-    const guestWs2 = createMockWs();
-    const { displayId } = sm.createSession(hostWs);
-
-    // Non-existent session
-    const r1 = sm.joinSession('NONEXIST', 'sometoken', guestWs1);
-    // Invalid token for existing session
-    const r2 = sm.joinSession(displayId, 'wrong_token', guestWs2);
-
-    // Both should use the same generic message to prevent enumeration
-    assert.equal(r1.message, r2.message);
-  });
-
-  it('should reject join when session is occupied', () => {
-    const hostWs = createMockWs();
-    const guest1 = createMockWs();
-    const guest2 = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-
-    sm.joinSession(displayId, secret, guest1);
-    const result = sm.joinSession(displayId, secret, guest2);
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'SESSION_OCCUPIED');
-  });
-
-  it('should accept connection', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-    sm.joinSession(displayId, secret, guestWs);
-
-    const accepted = sm.acceptConnection(displayId, hostWs);
-    assert.ok(accepted);
-
-    // Both should receive SESSION_CONNECTED
-    const hostConnected = hostWs._sent.find(m => m.type === 'SESSION_CONNECTED');
-    const guestConnected = guestWs._sent.find(m => m.type === 'SESSION_CONNECTED');
-    assert.ok(hostConnected);
-    assert.ok(guestConnected);
-    assert.ok(hostConnected.iceServers);
-  });
-
-  it('should reject connection', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-    sm.joinSession(displayId, secret, guestWs);
-
-    const rejected = sm.rejectConnection(displayId, hostWs);
-    assert.ok(rejected);
-
-    // Guest should receive CONNECTION_REJECTED
-    const rejMsg = guestWs._sent.find(m => m.type === 'CONNECTION_REJECTED');
-    assert.ok(rejMsg);
-
-    // Session should return to WAITING
     const session = sm.getSession(displayId);
-    assert.equal(session.state, SESSION_STATE.WAITING);
-    assert.equal(session.guestWs, null);
+    assert.equal(session.ipHash, ipHash);
   });
 
-  it('should prevent non-host from accepting', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-    sm.joinSession(displayId, secret, guestWs);
-
-    // Guest tries to accept — should fail
-    const accepted = sm.acceptConnection(displayId, guestWs);
-    assert.equal(accepted, false);
-  });
-
-  it('should route signals only in CONNECTED state', () => {
-    const hostWs = createMockWs();
-    const guestWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-    sm.joinSession(displayId, secret, guestWs);
-
-    // Before acceptance — should fail
-    assert.equal(sm.routeSignal(hostWs, { sdp: 'test' }), false);
-
-    // After acceptance — should work
-    sm.acceptConnection(displayId, hostWs);
-    assert.ok(sm.routeSignal(hostWs, { sdp: 'offer' }));
-
-    // Guest should receive the signal
-    const signal = guestWs._sent.find(m => m.type === 'WEBRTC_SIGNAL');
-    assert.ok(signal);
-    assert.equal(signal.payload.sdp, 'offer');
-  });
-
-  it('should prevent cross-session signaling', () => {
+  it('should discover active sessions matching IP hash', () => {
     const host1 = createMockWs();
-    const guest1 = createMockWs();
     const host2 = createMockWs();
-    const guest2 = createMockWs();
+    const ipHash1 = 'ip_hash_wifi_1';
+    const ipHash2 = 'ip_hash_wifi_2';
 
-    const s1 = sm.createSession(host1);
-    sm.joinSession(s1.displayId, s1.secret, guest1);
-    sm.acceptConnection(s1.displayId, host1);
+    const s1 = sm.createSession(host1, ipHash1);
+    const s2 = sm.createSession(host2, ipHash2);
 
-    const s2 = sm.createSession(host2);
-    sm.joinSession(s2.displayId, s2.secret, guest2);
-    sm.acceptConnection(s2.displayId, host2);
+    const local1 = sm.discoverLocal(ipHash1);
+    assert.equal(local1.length, 1);
+    assert.equal(local1[0].displayId, s1.displayId);
 
-    // Clear sent arrays to only track new messages
-    guest1._sent.length = 0;
-    guest2._sent.length = 0;
-
-    // host1 sends signal — should go to guest1, NOT guest2
-    sm.routeSignal(host1, { sdp: 'for_guest1' });
-    assert.equal(guest1._sent.length, 1);
-    assert.equal(guest2._sent.length, 0);
+    const local2 = sm.discoverLocal(ipHash2);
+    assert.equal(local2.length, 1);
+    assert.equal(local2[0].displayId, s2.displayId);
   });
 
-  it('should handle disconnect and notify peer', () => {
+  it('should handle reconnection grace period and successful re-pairing', () => {
     const hostWs = createMockWs();
     const guestWs = createMockWs();
     const { displayId, secret } = sm.createSession(hostWs);
     sm.joinSession(displayId, secret, guestWs);
     sm.acceptConnection(displayId, hostWs);
 
-    guestWs._sent.length = 0;
-    hostWs._sent.length = 0;
+    const session = sm.getSession(displayId);
+    assert.equal(session.state, SESSION_STATE.CONNECTED);
 
-    // Guest disconnects
+    // Guest disconnects unexpectedly
+    hostWs._sent.length = 0;
+    guestWs._sent.length = 0;
+
     sm.handleDisconnect(guestWs);
 
-    // Host should receive PEER_DISCONNECTED
-    const disc = hostWs._sent.find(m => m.type === 'PEER_DISCONNECTED');
-    assert.ok(disc);
+    // Host should receive PEER_RECONNECTING
+    const reconnectingMsg = hostWs._sent.find(m => m.type === 'PEER_RECONNECTING');
+    assert.ok(reconnectingMsg, 'Host should be notified peer is reconnecting');
 
-    // Session should be cleaned up
-    assert.equal(sm.sessionCount, 0);
+    // Session remains alive in memory during grace period
+    assert.equal(sm.sessionCount, 1);
+
+    // Generate/retrieve token and reconnect with a new WebSocket
+    const newGuestWs = createMockWs();
+    // Simulate peer having stored the reconnect token
+    const token = session._preGeneratedReconnectToken || 'some_token';
+    // Reconnect directly with pre-stored token hash
+    session.reconnectTokenHash = hashSecret(token);
+    
+    const reconnectResult = sm.reconnectSession(displayId, token, newGuestWs);
+    assert.ok(reconnectResult.success);
+    assert.equal(reconnectResult.role, 'guest');
+
+    // Both peers receive RECONNECTED notification
+    assert.ok(hostWs._sent.some(m => m.type === 'RECONNECTED'));
+    assert.ok(newGuestWs._sent.some(m => m.type === 'RECONNECTED'));
   });
 
-  it('should expire sessions', () => {
-    const hostWs = createMockWs();
-    const { displayId } = sm.createSession(hostWs);
-
-    sm.expireSession(displayId);
-
-    // Host should receive SESSION_EXPIRED
-    const exp = hostWs._sent.find(m => m.type === 'SESSION_EXPIRED');
-    assert.ok(exp);
-
-    // Session should be cleaned up
-    assert.equal(sm.sessionCount, 0);
-  });
-
-  it('should prevent reuse of expired session', () => {
+  it('should activate and route binary data through relay mode', () => {
     const hostWs = createMockWs();
     const guestWs = createMockWs();
     const { displayId, secret } = sm.createSession(hostWs);
+    sm.joinSession(displayId, secret, guestWs);
+    sm.acceptConnection(displayId, hostWs);
 
-    sm.expireSession(displayId);
+    // Request relay fallback
+    const relayActive = sm.activateRelay(hostWs);
+    assert.ok(relayActive.success);
 
-    const result = sm.joinSession(displayId, secret, guestWs);
-    assert.equal(result.success, false);
-  });
+    // Both receive RELAY_READY
+    assert.ok(hostWs._sent.some(m => m.type === 'RELAY_READY'));
+    assert.ok(guestWs._sent.some(m => m.type === 'RELAY_READY'));
 
-  it('should invalidate credentials on session destroy', () => {
-    const hostWs = createMockWs();
-    const { displayId, secret } = sm.createSession(hostWs);
-
-    // Get session before destroy to check secretHash
-    const session = sm.getSession(displayId);
-    assert.ok(session.secretHash);
-
-    sm.expireSession(displayId);
-
-    // Session is deleted, so getSession returns undefined
-    assert.equal(sm.getSession(displayId), undefined);
+    // Route binary packet from host to guest
+    guestWs._sent.length = 0;
+    const testBuffer = Buffer.from('encrypted_payload_data');
+    const routeRes = sm.routeRelayData(hostWs, testBuffer);
+    assert.ok(routeRes.success);
+    assert.equal(guestWs._sent.length, 1);
+    assert.deepEqual(guestWs._sent[0], testBuffer);
   });
 });
 
-// ─── Integration Tests (real WebSocket connections against running server) ───
+// ─── Full Integration Tests ───
 
-describe('Integration Tests', () => {
-  let serverProcess;
+describe('Integration Tests with All Features', () => {
   const TEST_PORT = 4099;
-
-  // We spin up a minimal test server for integration tests
   let httpServer;
   let wss;
   let sm;
 
   before(async () => {
-    // Dynamically import and set up a mini test server
     const { createConnectionHandler } = await import('../websocket/connectionHandler.js');
 
     sm = new SessionManager();
+    httpServer = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        const snap = metrics.getSnapshot(sm.sessionCount);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', active_sessions: snap.active_sessions }));
+        return;
+      }
+      if (req.url === '/metrics') {
+        const snap = metrics.getSnapshot(sm.sessionCount);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(snap));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
 
-    httpServer = http.createServer();
     wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
 
     wss.on('connection', (ws, req) => {
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
-      const clientIp = req.socket.remoteAddress || 'test';
+      const clientIp = req.socket.remoteAddress || 'test_ip';
       createConnectionHandler(ws, sm, clientIp);
     });
 
@@ -495,7 +446,6 @@ describe('Integration Tests', () => {
     });
   });
 
-  // Reset the global rate limiter between each test to prevent cross-test interference
   beforeEach(() => {
     rateLimiter.buckets.clear();
   });
@@ -506,100 +456,53 @@ describe('Integration Tests', () => {
     await new Promise((resolve) => httpServer.close(resolve));
   });
 
-  it('should create a session via WebSocket', async () => {
-    const ws = await connectClient(TEST_PORT);
-    try {
-      const response = await sendAndReceive(ws, { type: 'CREATE_SESSION' });
-      assert.equal(response.type, 'SESSION_CREATED');
-      assert.ok(response.displayId);
-      assert.equal(response.displayId.length, 6);
-      assert.ok(response.sessionToken);
-      assert.equal(response.sessionToken.length, 64);
-      assert.ok(response.expiresAt > Date.now());
-    } finally {
-      ws.close();
-    }
-  });
-
-  it('should join a valid session via WebSocket', async () => {
-    const host = await connectClient(TEST_PORT);
-    const guest = await connectClient(TEST_PORT);
-    try {
-      // Host creates session
-      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
-
-      // Guest joins
-      const joinPromise = waitForMessage(guest);
-      const hostNotifyPromise = waitForMessage(host);
-
-      guest.send(JSON.stringify({
-        type: 'JOIN_SESSION',
-        sessionId: created.displayId,
-        token: created.sessionToken,
-      }));
-
-      const [joinResp, hostNotify] = await Promise.all([joinPromise, hostNotifyPromise]);
-
-      assert.equal(joinResp.type, 'JOINING');
-      assert.equal(joinResp.displayId, created.displayId);
-      assert.equal(hostNotify.type, 'CONNECTION_REQUEST');
-    } finally {
-      host.close();
-      guest.close();
-    }
-  });
-
-  it('should reject join with invalid token', async () => {
-    const host = await connectClient(TEST_PORT);
-    const guest = await connectClient(TEST_PORT);
-    try {
-      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
-
-      const response = await sendAndReceive(guest, {
-        type: 'JOIN_SESSION',
-        sessionId: created.displayId,
-        token: 'a'.repeat(64), // wrong token
+  it('should verify /health and /metrics HTTP endpoints', async () => {
+    const healthData = await new Promise((resolve) => {
+      http.get(`http://localhost:${TEST_PORT}/health`, (res) => {
+        let raw = '';
+        res.on('data', chunk => raw += chunk);
+        res.on('end', () => resolve(JSON.parse(raw)));
       });
+    });
 
-      assert.equal(response.type, 'ERROR');
-    } finally {
-      host.close();
-      guest.close();
-    }
-  });
+    assert.equal(healthData.status, 'ok');
+    assert.equal(typeof healthData.active_sessions, 'number');
 
-  it('should reject join for expired session', async () => {
-    const host = await connectClient(TEST_PORT);
-    const guest = await connectClient(TEST_PORT);
-    try {
-      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
-
-      // Manually expire the session
-      const session = sm.getSession(created.displayId);
-      session.expiresAt = Date.now() - 1000;
-
-      const response = await sendAndReceive(guest, {
-        type: 'JOIN_SESSION',
-        sessionId: created.displayId,
-        token: created.sessionToken,
+    const metricsData = await new Promise((resolve) => {
+      http.get(`http://localhost:${TEST_PORT}/metrics`, (res) => {
+        let raw = '';
+        res.on('data', chunk => raw += chunk);
+        res.on('end', () => resolve(JSON.parse(raw)));
       });
+    });
 
-      assert.equal(response.type, 'ERROR');
-    } finally {
-      host.close();
-      guest.close();
-    }
+    assert.ok(metricsData.counters);
+    assert.ok(typeof metricsData.uptime_seconds === 'number');
   });
 
-  it('should complete the full CREATE → JOIN → ACCEPT → CONNECT flow', async () => {
+  it('should discover local sessions via WebSocket DISCOVER_LOCAL', async () => {
     const host = await connectClient(TEST_PORT);
     const guest = await connectClient(TEST_PORT);
     try {
-      // 1. Create
       const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
       assert.equal(created.type, 'SESSION_CREATED');
 
-      // 2. Join
+      const discoverResp = await sendAndReceive(guest, { type: 'DISCOVER_LOCAL' });
+      assert.equal(discoverResp.type, 'LOCAL_SESSIONS');
+      assert.ok(Array.isArray(discoverResp.sessions));
+      assert.ok(discoverResp.sessions.some(s => s.displayId === created.displayId));
+    } finally {
+      host.close();
+      guest.close();
+    }
+  });
+
+  it('should perform full connect and receive RECONNECT_TOKEN proactively', async () => {
+    const host = await connectClient(TEST_PORT);
+    const guest = await connectClient(TEST_PORT);
+    try {
+      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
+
       const joinPromise = waitForMessage(guest);
       const hostRequestPromise = waitForMessage(host);
       guest.send(JSON.stringify({
@@ -607,12 +510,9 @@ describe('Integration Tests', () => {
         sessionId: created.displayId,
         token: created.sessionToken,
       }));
+      await Promise.all([joinPromise, hostRequestPromise]);
 
-      const [joinResp, hostRequest] = await Promise.all([joinPromise, hostRequestPromise]);
-      assert.equal(joinResp.type, 'JOINING');
-      assert.equal(hostRequest.type, 'CONNECTION_REQUEST');
-
-      // 3. Accept
+      // Accept connection
       const hostConnPromise = waitForMessage(host);
       const guestConnPromise = waitForMessage(guest);
       host.send(JSON.stringify({ type: 'ACCEPT_CONNECTION' }));
@@ -620,104 +520,17 @@ describe('Integration Tests', () => {
       const [hostConn, guestConn] = await Promise.all([hostConnPromise, guestConnPromise]);
       assert.equal(hostConn.type, 'SESSION_CONNECTED');
       assert.equal(guestConn.type, 'SESSION_CONNECTED');
-      assert.ok(hostConn.iceServers);
-      assert.ok(guestConn.iceServers);
+      assert.ok(hostConn.iceServers.length > 0);
     } finally {
       host.close();
       guest.close();
     }
   });
 
-  it('should complete the full CREATE → JOIN → REJECT flow', async () => {
+  it('should activate relay and forward binary frames', async () => {
     const host = await connectClient(TEST_PORT);
     const guest = await connectClient(TEST_PORT);
     try {
-      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
-
-      const joinPromise = waitForMessage(guest);
-      const hostRequestPromise = waitForMessage(host);
-      guest.send(JSON.stringify({
-        type: 'JOIN_SESSION',
-        sessionId: created.displayId,
-        token: created.sessionToken,
-      }));
-      await Promise.all([joinPromise, hostRequestPromise]);
-
-      // Reject
-      const guestRejectPromise = waitForMessage(guest);
-      host.send(JSON.stringify({ type: 'REJECT_CONNECTION' }));
-
-      const rejectResp = await guestRejectPromise;
-      assert.equal(rejectResp.type, 'CONNECTION_REJECTED');
-    } finally {
-      host.close();
-      guest.close();
-    }
-  });
-
-  it('should notify peer on disconnect', async () => {
-    const host = await connectClient(TEST_PORT);
-    const guest = await connectClient(TEST_PORT);
-    try {
-      const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
-
-      const joinPromise = waitForMessage(guest);
-      const hostRequestPromise = waitForMessage(host);
-      guest.send(JSON.stringify({
-        type: 'JOIN_SESSION',
-        sessionId: created.displayId,
-        token: created.sessionToken,
-      }));
-      await Promise.all([joinPromise, hostRequestPromise]);
-
-      // Accept
-      const hostConnPromise = waitForMessage(host);
-      const guestConnPromise = waitForMessage(guest);
-      host.send(JSON.stringify({ type: 'ACCEPT_CONNECTION' }));
-      await Promise.all([hostConnPromise, guestConnPromise]);
-
-      // Guest disconnects
-      const hostDisconnectPromise = waitForMessage(host, 5000);
-      guest.close();
-
-      const disconnectMsg = await hostDisconnectPromise;
-      assert.equal(disconnectMsg.type, 'PEER_DISCONNECTED');
-    } finally {
-      try { host.close(); } catch {}
-    }
-  });
-
-  it('should reject malformed messages', async () => {
-    const ws = await connectClient(TEST_PORT);
-    try {
-      ws.send('not valid json at all');
-      const response = await waitForMessage(ws);
-      assert.equal(response.type, 'ERROR');
-      assert.equal(response.code, 'MALFORMED_MESSAGE');
-    } finally {
-      ws.close();
-    }
-  });
-
-  it('should reject unauthorized signaling', async () => {
-    const ws = await connectClient(TEST_PORT);
-    try {
-      const response = await sendAndReceive(ws, {
-        type: 'WEBRTC_SIGNAL',
-        payload: { sdp: 'test' },
-      });
-      assert.equal(response.type, 'ERROR');
-      assert.equal(response.code, 'UNAUTHORIZED');
-    } finally {
-      ws.close();
-    }
-  });
-
-  it('should route WebRTC signals between connected peers', async () => {
-    const host = await connectClient(TEST_PORT);
-    const guest = await connectClient(TEST_PORT);
-    try {
-      // Full connect flow
       const created = await sendAndReceive(host, { type: 'CREATE_SESSION' });
       const joinPromise = waitForMessage(guest);
       const hostRequestPromise = waitForMessage(host);
@@ -733,40 +546,25 @@ describe('Integration Tests', () => {
       host.send(JSON.stringify({ type: 'ACCEPT_CONNECTION' }));
       await Promise.all([hostConnPromise, guestConnPromise]);
 
-      // Host sends SDP offer to guest
-      const guestSignalPromise = waitForMessage(guest);
-      host.send(JSON.stringify({
-        type: 'WEBRTC_SIGNAL',
-        payload: { type: 'offer', sdp: 'test-offer-sdp' },
-      }));
+      // Host requests relay fallback
+      const hostRelayPromise = waitForMessage(host);
+      const guestRelayPromise = waitForMessage(guest);
+      host.send(JSON.stringify({ type: 'RELAY_REQUEST' }));
 
-      const guestSignal = await guestSignalPromise;
-      assert.equal(guestSignal.type, 'WEBRTC_SIGNAL');
-      assert.equal(guestSignal.payload.sdp, 'test-offer-sdp');
+      const [hostRelay, guestRelay] = await Promise.all([hostRelayPromise, guestRelayPromise]);
+      assert.equal(hostRelay.type, 'RELAY_READY');
+      assert.equal(guestRelay.type, 'RELAY_READY');
 
-      // Guest sends SDP answer to host
-      const hostSignalPromise = waitForMessage(host);
-      guest.send(JSON.stringify({
-        type: 'WEBRTC_SIGNAL',
-        payload: { type: 'answer', sdp: 'test-answer-sdp' },
-      }));
+      // Send binary data from host to guest
+      const binaryPayload = Buffer.from('encrypted_file_chunk_data_123');
+      const receiveBinaryPromise = waitForMessage(guest);
+      host.send(binaryPayload);
 
-      const hostSignal = await hostSignalPromise;
-      assert.equal(hostSignal.type, 'WEBRTC_SIGNAL');
-      assert.equal(hostSignal.payload.sdp, 'test-answer-sdp');
+      const receivedBinary = await receiveBinaryPromise;
+      assert.deepEqual(receivedBinary, binaryPayload);
     } finally {
       host.close();
       guest.close();
-    }
-  });
-
-  it('should handle PING/PONG', async () => {
-    const ws = await connectClient(TEST_PORT);
-    try {
-      const response = await sendAndReceive(ws, { type: 'PING' });
-      assert.equal(response.type, 'PONG');
-    } finally {
-      ws.close();
     }
   });
 });

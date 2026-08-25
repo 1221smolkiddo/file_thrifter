@@ -12,6 +12,13 @@ export const CLIENT_MSG = {
   WEBRTC_SIGNAL: 'WEBRTC_SIGNAL',
   DISCONNECT: 'DISCONNECT',
   PING: 'PING',
+  // Reconnection
+  RECONNECT: 'RECONNECT',
+  // Local discovery
+  DISCOVER_LOCAL: 'DISCOVER_LOCAL',
+  // Relay fallback
+  RELAY_REQUEST: 'RELAY_REQUEST',
+  RELAY_END: 'RELAY_END',
 };
 
 /**
@@ -29,6 +36,17 @@ export const SERVER_MSG = {
   SESSION_TIMED_OUT: 'SESSION_TIMED_OUT',
   ERROR: 'ERROR',
   PONG: 'PONG',
+  // Reconnection
+  RECONNECT_TOKEN: 'RECONNECT_TOKEN',
+  PEER_RECONNECTING: 'PEER_RECONNECTING',
+  RECONNECTED: 'RECONNECTED',
+  // Local discovery
+  LOCAL_SESSIONS: 'LOCAL_SESSIONS',
+  // Relay fallback
+  RELAY_READY: 'RELAY_READY',
+  RELAY_REJECTED: 'RELAY_REJECTED',
+  RELAY_DATA: 'RELAY_DATA',
+  RELAY_ENDED: 'RELAY_ENDED',
 };
 
 /**
@@ -89,6 +107,16 @@ export function parseMessage(raw) {
     case CLIENT_MSG.WEBRTC_SIGNAL: {
       if (!data.payload || typeof data.payload !== 'object') {
         return { valid: false, error: 'WEBRTC_SIGNAL requires a payload object' };
+      }
+      break;
+    }
+
+    case CLIENT_MSG.RECONNECT: {
+      if (typeof data.reconnectToken !== 'string' || !data.reconnectToken.trim()) {
+        return { valid: false, error: 'RECONNECT requires a reconnectToken' };
+      }
+      if (typeof data.sessionId !== 'string' || !data.sessionId.trim()) {
+        return { valid: false, error: 'RECONNECT requires a sessionId' };
       }
       break;
     }

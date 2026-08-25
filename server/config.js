@@ -1,6 +1,8 @@
 // server/config.js
 // Centralized configuration from environment variables with sensible defaults.
 
+import { buildIceServers } from './security/turnCredentials.js';
+
 const config = {
   // Server
   PORT: parseInt(process.env.PORT, 10) || 4000,
@@ -59,25 +61,26 @@ const config = {
   TURN_USERNAME: process.env.TURN_USERNAME || '',
   TURN_CREDENTIAL: process.env.TURN_CREDENTIAL || '',
 
+  // Ephemeral TURN credentials (Coturn use_auth_secret mode)
+  TURN_SHARED_SECRET: process.env.TURN_SHARED_SECRET || '',
+  TURN_CREDENTIAL_TTL_S: parseInt(process.env.TURN_CREDENTIAL_TTL_S, 10) || 21600, // 6 hours
+
+  // Reconnection grace period (how long to hold a session after disconnect)
+  RECONNECT_GRACE_MS: parseInt(process.env.RECONNECT_GRACE_MS, 10) || 30_000, // 30 seconds
+
+  // WebSocket relay fallback
+  RELAY_MAX_BYTES_PER_SESSION: parseInt(process.env.RELAY_MAX_BYTES, 10) || 500 * 1024 * 1024, // 500 MB
+  RELAY_CHUNK_SIZE: parseInt(process.env.RELAY_CHUNK_SIZE, 10) || 64 * 1024, // 64 KB
+  RATE_LIMIT_RELAY: {
+    windowMs: parseInt(process.env.RL_RELAY_WINDOW_MS, 10) || 1_000,
+    maxRequests: parseInt(process.env.RL_RELAY_MAX, 10) || 100,
+  },
+
   // Node environment
   NODE_ENV: process.env.NODE_ENV || 'development',
 };
 
-// Build ICE server config for clients
-config.getIceServers = () => {
-  const servers = config.STUN_SERVERS.map(url => ({ urls: url }));
-
-  if (config.TURN_SERVERS.length > 0 && config.TURN_USERNAME && config.TURN_CREDENTIAL) {
-    for (const url of config.TURN_SERVERS) {
-      servers.push({
-        urls: url,
-        username: config.TURN_USERNAME,
-        credential: config.TURN_CREDENTIAL,
-      });
-    }
-  }
-
-  return servers;
-};
+// Build ICE server config for clients (with ephemeral TURN credentials when configured)
+config.getIceServers = () => buildIceServers(config);
 
 export default config;

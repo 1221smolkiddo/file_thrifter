@@ -4,7 +4,7 @@ import { QRCodeDisplay } from '../components/QR/QRCodeDisplay';
 import { APP_STATE } from '../hooks/useWebSocketSession';
 import { BorderGlow } from '../components/Common/BorderGlow';
 
-export function Home({ appState, sessionData, onCreateSession, onJoinSession }) {
+export function Home({ appState, sessionData, localSessions = [], onCreateSession, onJoinSession }) {
   const [inputToken, setInputToken] = useState('');
   const [joinError, setJoinError] = useState('');
 
@@ -112,6 +112,23 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
 
           {!isWaiting && (
             <form onSubmit={handleJoinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {localSessions && localSessions.length > 0 && (
+                <div style={{
+                  padding: '0.5rem 0.75rem',
+                  background: 'rgba(218, 255, 1, 0.05)',
+                  border: '1px solid rgba(218, 255, 1, 0.3)',
+                  borderRadius: '3px',
+                  fontSize: '0.75rem',
+                  color: 'var(--accent-lime)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginBottom: '0.25rem',
+                }} className="mono animate-fade-in">
+                  <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent-lime)', boxShadow: '0 0 6px var(--accent-lime)' }} />
+                  <span>{localSessions.length} session{localSessions.length > 1 ? 's' : ''} detected on your network</span>
+                </div>
+              )}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',

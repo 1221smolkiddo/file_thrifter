@@ -15,6 +15,9 @@ export const APP_STATE = {
   TIMED_OUT: 'TIMED_OUT',
   EXPIRED: 'EXPIRED',
   ERROR: 'ERROR',
+  // New states for reconnection
+  PEER_RECONNECTING: 'PEER_RECONNECTING',
+  RECONNECTING: 'RECONNECTING',
 };
 
 export function useWebSocketSession() {
@@ -28,8 +31,13 @@ export function useWebSocketSession() {
     iceServers: null,
   });
   const [incomingRequest, setIncomingRequest] = useState(false);
+  const [localSessions, setLocalSessions] = useState([]);
+  const [relayMode, setRelayMode] = useState(false);
   const wsRef = useRef(null);
   const onWebRtcSignalRef = useRef(null);
+  const onRelayDataRef = useRef(null);
+  const reconnectTokenRef = useRef(null);
+  const reconnectSessionIdRef = useRef(null);
 
   // Initialize WS connection
   const connectWs = useCallback(() => {
@@ -38,15 +46,41 @@ export function useWebSocketSession() {
     }
 
     const host = window.location.hostname || 'localhost';
-    const wsUrl = `ws://${host}:4000`;
+    const defaultProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const defaultPort = window.location.port === '5173' || window.location.port === '3000' ? ':4000' : (window.location.port ? `:${window.location.port}` : '');
+    const wsUrl = import.meta.env.VITE_WS_URL || `${defaultProto}//${host}${defaultPort}`;
     const socket = new WebSocket(wsUrl);
+
+    socket.binaryType = 'arraybuffer';
 
     socket.onopen = () => {
       console.log('[THRIFT] WebSocket connected to', wsUrl);
+
+      // If we have a reconnect token, attempt to reconnect automatically
+      if (reconnectTokenRef.current && reconnectSessionIdRef.current) {
+        console.log('[THRIFT] Attempting auto-reconnect...');
+        socket.send(JSON.stringify({
+          type: 'RECONNECT',
+          reconnectToken: reconnectTokenRef.current,
+          sessionId: reconnectSessionIdRef.current,
+        }));
+        reconnectTokenRef.current = null;
+      } else {
+        // Send local discovery request on fresh connections
+        socket.send(JSON.stringify({ type: 'DISCOVER_LOCAL' }));
+      }
     };
 
     socket.onmessage = (event) => {
       try {
+        // Binary messages are relay data
+        if (event.data instanceof ArrayBuffer) {
+          if (onRelayDataRef.current) {
+            onRelayDataRef.current(event.data);
+          }
+          return;
+        }
+
         const msg = JSON.parse(event.data);
         console.log('[THRIFT] Received event:', msg.type);
 
@@ -133,6 +167,58 @@ export function useWebSocketSession() {
             break;
           }
 
+          // ─── Reconnection Messages ───
+
+          case 'RECONNECT_TOKEN': {
+            console.log('[THRIFT] Received reconnect token');
+            reconnectTokenRef.current = msg.reconnectToken;
+            reconnectSessionIdRef.current = msg.sessionId;
+            break;
+          }
+
+          case 'PEER_RECONNECTING': {
+            console.log('[THRIFT] Peer is reconnecting...');
+            setAppState(APP_STATE.PEER_RECONNECTING);
+            break;
+          }
+
+          case 'RECONNECTED': {
+            console.log('[THRIFT] Reconnection successful');
+            setSessionData((prev) => ({
+              ...prev,
+              iceServers: msg.iceServers || prev.iceServers,
+            }));
+            setAppState(APP_STATE.WEBRTC_CONNECTING);
+            break;
+          }
+
+          // ─── Local Discovery ───
+
+          case 'LOCAL_SESSIONS': {
+            console.log('[THRIFT] Local sessions found:', msg.count);
+            setLocalSessions(msg.sessions || []);
+            break;
+          }
+
+          // ─── Relay Fallback ───
+
+          case 'RELAY_READY': {
+            console.log('[THRIFT] Relay mode activated');
+            setRelayMode(true);
+            break;
+          }
+
+          case 'RELAY_REJECTED': {
+            console.log('[THRIFT] Relay request rejected:', msg.reason);
+            break;
+          }
+
+          case 'RELAY_ENDED': {
+            console.log('[THRIFT] Relay mode ended:', msg.reason);
+            setRelayMode(false);
+            break;
+          }
+
           case 'ERROR': {
             setAppState(APP_STATE.ERROR);
             setSessionData((prev) => ({ ...prev, errorMessage: msg.message }));
@@ -153,6 +239,17 @@ export function useWebSocketSession() {
 
     socket.onclose = () => {
       console.log('[THRIFT] WebSocket closed');
+
+      // If we have a reconnect token, attempt to reconnect
+      if (reconnectTokenRef.current && reconnectSessionIdRef.current) {
+        console.log('[THRIFT] WebSocket closed — will attempt reconnect...');
+        setAppState(APP_STATE.RECONNECTING);
+
+        // Auto-reconnect after a brief delay
+        setTimeout(() => {
+          connectWs();
+        }, 1000);
+      }
     };
 
     socket.onerror = (err) => {
@@ -175,11 +272,19 @@ export function useWebSocketSession() {
   const send = (data) => {
     const socket = connectWs();
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(data));
+      if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+        socket.send(data);
+      } else {
+        socket.send(JSON.stringify(data));
+      }
     } else {
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify(data));
+          if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+            wsRef.current.send(data);
+          } else {
+            wsRef.current.send(JSON.stringify(data));
+          }
         }
       }, 300);
     }
@@ -213,6 +318,10 @@ export function useWebSocketSession() {
     onWebRtcSignalRef.current = handler;
   }, []);
 
+  const setOnRelayData = useCallback((handler) => {
+    onRelayDataRef.current = handler;
+  }, []);
+
   const acceptConnection = useCallback(() => {
     send({ type: 'ACCEPT_CONNECTION' });
   }, []);
@@ -223,7 +332,26 @@ export function useWebSocketSession() {
     setAppState(APP_STATE.WAITING_FOR_DEVICE);
   }, []);
 
+  // ─── Relay controls ───
+
+  const requestRelay = useCallback(() => {
+    send({ type: 'RELAY_REQUEST' });
+  }, []);
+
+  const sendRelayData = useCallback((binaryData) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(binaryData);
+    }
+  }, []);
+
+  const endRelay = useCallback(() => {
+    send({ type: 'RELAY_END' });
+    setRelayMode(false);
+  }, []);
+
   const disconnect = useCallback(() => {
+    reconnectTokenRef.current = null;
+    reconnectSessionIdRef.current = null;
     if (wsRef.current) {
       wsRef.current.close();
     }
@@ -237,12 +365,16 @@ export function useWebSocketSession() {
       iceServers: null,
     });
     setIncomingRequest(false);
+    setLocalSessions([]);
+    setRelayMode(false);
   }, []);
 
   return {
     appState,
     sessionData,
     incomingRequest,
+    localSessions,
+    relayMode,
     createSession,
     joinSession,
     acceptConnection,
@@ -250,6 +382,10 @@ export function useWebSocketSession() {
     sendWebRtcSignal,
     sendKeepAlive,
     setOnWebRtcSignal,
+    setOnRelayData,
+    requestRelay,
+    sendRelayData,
+    endRelay,
     disconnect,
     setAppState,
   };

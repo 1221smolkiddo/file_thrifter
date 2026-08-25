@@ -17,6 +17,8 @@ export default function App() {
     appState,
     sessionData,
     incomingRequest,
+    localSessions,
+    relayMode,
     createSession,
     joinSession,
     acceptConnection,
@@ -24,6 +26,9 @@ export default function App() {
     sendWebRtcSignal,
     sendKeepAlive,
     setOnWebRtcSignal,
+    setOnRelayData,
+    requestRelay,
+    sendRelayData,
     disconnect,
     setAppState,
   } = useWebSocketSession();
@@ -228,6 +233,7 @@ export default function App() {
   const {
     rtcState,
     dataChannelOpen,
+    isRelayFallback,
     handleSignal,
     sendTestMessage,
     sendData,
@@ -239,11 +245,22 @@ export default function App() {
     iceServers: sessionData.iceServers,
     sendWsMessage: sendWebRtcSignal,
     shouldConnect: shouldConnectWebRTC,
+    relayMode,
+    requestRelay,
+    sendRelayData,
     onConnected: handleWebRTCConnected,
     onDisconnected: handleWebRTCDisconnected,
     onMessage: handleWebRTCMessage,
     onError: handleWebRTCError,
   });
+
+  // Connect WebSocket relay binary stream to WebRTC message handler
+  useEffect(() => {
+    setOnRelayData((data) => {
+      handleWebRTCMessage(data);
+    });
+    return () => setOnRelayData(null);
+  }, [handleWebRTCMessage, setOnRelayData]);
 
   useEffect(() => {
     sendDataRef.current = sendData;
@@ -358,6 +375,7 @@ export default function App() {
           <Home
             appState={appState}
             sessionData={sessionData}
+            localSessions={localSessions}
             onCreateSession={createSession}
             onJoinSession={(sessionId, token) => joinSession(sessionId, token)}
           />
@@ -371,6 +389,19 @@ export default function App() {
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               Verifying session token and establishing peer handshake
+            </p>
+          </div>
+        );
+
+      case APP_STATE.PEER_RECONNECTING:
+      case APP_STATE.RECONNECTING:
+        return (
+          <div style={{ textAlign: 'center', padding: '4rem 1rem' }} className="mono">
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--accent-lime)' }} className="animate-pulse-glow">
+              {appState === APP_STATE.RECONNECTING ? 'RECONNECTING TO SESSION...' : 'PEER RECONNECTING (30s GRACE)...'}
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Holding session state while network connection recovers
             </p>
           </div>
         );

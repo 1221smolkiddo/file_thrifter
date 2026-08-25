@@ -10,14 +10,28 @@ import SessionManager from './session/SessionManager.js';
 import { createConnectionHandler } from './websocket/connectionHandler.js';
 import rateLimiter from './security/rateLimiter.js';
 import logger from './utils/logger.js';
+import metrics from './monitoring/metrics.js';
 
 // ─── Create HTTP server (required for origin checking on upgrade) ───
 
 const server = http.createServer((req, res) => {
   // Health check endpoint
   if (req.url === '/health') {
+    const snapshot = metrics.getSnapshot(sessionManager.sessionCount);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', sessions: sessionManager.sessionCount }));
+    res.end(JSON.stringify({
+      status: 'ok',
+      uptime_seconds: snapshot.uptime_seconds,
+      active_sessions: snapshot.active_sessions,
+    }));
+    return;
+  }
+
+  // Full metrics endpoint
+  if (req.url === '/metrics') {
+    const snapshot = metrics.getSnapshot(sessionManager.sessionCount);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(snapshot));
     return;
   }
 
@@ -70,6 +84,7 @@ server.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress || 'unknown';
   logger.ws('CLIENT_CONNECTED');
+  metrics.increment('ws_connections_total');
 
   // Mark connection as alive for heartbeat
   ws.isAlive = true;
