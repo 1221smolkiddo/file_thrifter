@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { QRCodeDisplay } from '../components/QR/QRCodeDisplay';
 import { APP_STATE } from '../hooks/useWebSocketSession';
+import { BorderGlow } from '../components/Common/BorderGlow';
 
 export function Home({ appState, sessionData, onCreateSession, onJoinSession }) {
   const [inputToken, setInputToken] = useState('');
@@ -32,7 +33,6 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
     }
 
     // If it doesn't look like a URL, show error — we need both session + token
-    // For now, the primary join path is via QR scan / URL paste
     setJoinError('Paste the pairing code shown below the QR, or scan it.');
   };
 
@@ -81,26 +81,32 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '340px' }}>
           {!isWaiting && (
-            <button
+            <BorderGlow
+              as="button"
               onClick={onCreateSession}
-              style={{
-                width: '100%',
-                background: 'var(--text-primary)',
-                color: 'var(--bg-primary)',
-                padding: '1rem 1.25rem',
-                fontWeight: 700,
-                fontSize: '0.9rem',
-                letterSpacing: '0.05em',
-                borderRadius: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-              }}
-              className="touch-target"
+              glowColor="var(--accent-lime)"
+              backgroundColor="var(--text-primary)"
+              alwaysActive={true}
+              speed={3}
+              style={{ width: '100%' }}
             >
-              GENERATE QR <ArrowRight size={18} />
-            </button>
+              <div
+                style={{
+                  padding: '1rem 1.25rem',
+                  fontSize: '0.9rem',
+                  fontWeight: 800,
+                  color: 'var(--bg-primary)',
+                  letterSpacing: '0.05em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  width: '100%',
+                }}
+              >
+                GENERATE QR <ArrowRight size={18} className="icon-arrow" />
+              </div>
+            </BorderGlow>
           )}
 
           {!isWaiting && (
@@ -137,19 +143,15 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
                 <button
                   type="submit"
                   disabled={!inputToken.trim()}
+                  className="border-glow-btn"
                   style={{
-                    background: inputToken.trim() ? 'var(--bg-surface-hover)' : 'transparent',
-                    border: `1px solid ${inputToken.trim() ? 'var(--text-secondary)' : 'var(--bg-surface-border)'}`,
-                    color: inputToken.trim() ? 'var(--text-primary)' : 'var(--text-muted)',
-                    padding: '0 1rem',
-                    fontWeight: 600,
-                    borderRadius: '2px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    padding: '0 1.2rem',
+                    opacity: inputToken.trim() ? 1 : 0.5,
+                    cursor: inputToken.trim() ? 'pointer' : 'default',
+                    color: 'var(--text-primary)',
                   }}
                 >
-                  <ArrowRight size={16} />
+                  <ArrowRight size={16} className="icon-arrow" />
                 </button>
               </div>
               {joinError && <span role="alert" className="mono" style={{ color: 'var(--accent-red)', fontSize: '0.7rem' }}>{joinError}</span>}
@@ -158,7 +160,7 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
         </div>
       </div>
 
-      {/* Right Side: QR Panel */}
+      {/* Right Side: QR Panel with ReactBits BorderGlow */}
       <div style={{
         display: 'flex',
         justifyContent: 'center',
@@ -168,64 +170,73 @@ export function Home({ appState, sessionData, onCreateSession, onJoinSession }) 
         {isWaiting ? (
           <div style={{ width: '100%', maxWidth: '380px' }}>
             {appState === APP_STATE.CREATING_SESSION ? (
-              <div style={{
-                width: '100%',
-                aspectRatio: '1/1',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--bg-surface-border)',
-                borderRadius: '4px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                textAlign: 'center',
-                padding: '2rem'
-              }} className="swiss-grid-bg mono">
-                <p style={{ color: 'var(--accent-lime)' }} className="animate-pulse-glow">
-                  GENERATING CRYPTOGRAPHIC SESSION...
-                </p>
-              </div>
+              <BorderGlow
+                alwaysActive={true}
+                speed={2.5}
+                glowColor="var(--accent-lime)"
+                style={{ width: '100%', maxWidth: '380px', aspectRatio: '1/1' }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: '2rem',
+                  }}
+                  className="swiss-grid-bg mono"
+                >
+                  <p style={{ color: 'var(--accent-lime)' }} className="animate-pulse-glow">
+                    GENERATING CRYPTOGRAPHIC SESSION...
+                  </p>
+                </div>
+              </BorderGlow>
             ) : (
               <QRCodeDisplay sessionData={sessionData} />
             )}
           </div>
         ) : (
-          <div
+          <BorderGlow
+            as="div"
             onClick={onCreateSession}
+            pointerTracked={true}
+            glowColor="var(--accent-lime)"
+            secondaryColor="#ffffff"
+            backgroundColor="var(--bg-surface)"
+            borderRadius="4px"
+            glowIntensity={24}
             style={{
               width: '100%',
               maxWidth: '380px',
               aspectRatio: '1/1',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--bg-surface-border)',
-              borderRadius: '4px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
               cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              position: 'relative',
-            }}
-            className="swiss-grid-bg"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-lime)';
-              e.currentTarget.style.boxShadow = '0 0 24px var(--accent-lime-glow)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--bg-surface-border)';
-              e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            <span className="mono" style={{
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              letterSpacing: '0.1em',
-              color: 'var(--text-secondary)',
-            }}>
-              GENERATE QR <ArrowUpRight size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }} />
-            </span>
-          </div>
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              className="swiss-grid-bg"
+            >
+              <span className="mono" style={{
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                letterSpacing: '0.1em',
+                color: 'var(--text-secondary)',
+                transition: 'color 0.2s ease',
+              }}>
+                GENERATE QR <ArrowUpRight size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }} />
+              </span>
+            </div>
+          </BorderGlow>
         )}
       </div>
     </div>

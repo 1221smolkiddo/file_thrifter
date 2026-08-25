@@ -10,6 +10,7 @@ import { useWebRTC } from './hooks/useWebRTC';
 import { DATA_MESSAGE_TYPE } from './lib/webrtc/constants';
 import { createRoleMessage, createTransferAckMessage, parseDataMessage } from './lib/webrtc/messages';
 import { AlertTriangle, Inbox, RefreshCw, Send } from 'lucide-react';
+import { BorderGlow } from './components/Common/BorderGlow';
 
 export default function App() {
   const {
@@ -397,12 +398,34 @@ export default function App() {
             </p>
             {p2pNotice && <p role="alert" style={{ color: 'var(--accent-red)', fontSize: '0.8rem' }}>{p2pNotice}</p>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-              <button onClick={() => handleTransferRole('SENDER')} style={{ padding: '1.5rem', background: 'var(--text-primary)', color: 'var(--bg-primary)', fontWeight: 800, borderRadius: '2px' }}>
-                <Send size={22} style={{ marginBottom: '0.5rem' }} /><br />SEND FILES
-              </button>
-              <button onClick={() => handleTransferRole('RECEIVER')} style={{ padding: '1.5rem', background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--bg-surface-border)', fontWeight: 800, borderRadius: '2px' }}>
-                <Inbox size={22} style={{ marginBottom: '0.5rem' }} /><br />RECEIVE FILES
-              </button>
+              <BorderGlow
+                as="button"
+                onClick={() => handleTransferRole('SENDER')}
+                glowColor="var(--accent-lime)"
+                backgroundColor="var(--text-primary)"
+                alwaysActive={true}
+                speed={3}
+                style={{ width: '100%' }}
+              >
+                <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '100%', color: 'var(--bg-primary)', fontWeight: 800 }}>
+                  <Send size={24} className="icon-arrow" />
+                  <span>SEND FILES</span>
+                </div>
+              </BorderGlow>
+              <BorderGlow
+                as="button"
+                onClick={() => handleTransferRole('RECEIVER')}
+                glowColor="var(--accent-lime)"
+                secondaryColor="#ffffff"
+                backgroundColor="var(--bg-surface)"
+                pointerTracked={true}
+                style={{ width: '100%' }}
+              >
+                <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '100%', color: 'var(--text-primary)', fontWeight: 800 }}>
+                  <Inbox size={24} className="icon-download" />
+                  <span>RECEIVE FILES</span>
+                </div>
+              </BorderGlow>
             </div>
           </div>
         );
@@ -455,7 +478,7 @@ export default function App() {
             flexDirection: 'column',
             alignItems: 'center',
             gap: '1rem',
-          }}>
+          }} className="animate-slide-up">
             <AlertTriangle size={40} style={{ color: 'var(--accent-red)' }} />
             <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>
               {appState === APP_STATE.EXPIRED ? 'SESSION EXPIRED' : appState === APP_STATE.TIMED_OUT ? 'CONNECTION TIMED OUT' : 'CONNECTION CLOSED'}
@@ -463,24 +486,19 @@ export default function App() {
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               {sessionData.errorMessage || 'The session was terminated or closed by peer. No data traces remain.'}
             </p>
-            <button
+            <BorderGlow
+              as="button"
               onClick={handleDisconnect}
-              style={{
-                background: 'var(--accent-lime)',
-                color: '#08080a',
-                padding: '0.75rem 1.5rem',
-                fontWeight: 800,
-                fontSize: '0.85rem',
-                borderRadius: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                marginTop: '0.5rem',
-              }}
+              glowColor="var(--accent-lime)"
+              backgroundColor="var(--accent-lime)"
+              alwaysActive={true}
+              speed={2.6}
             >
-              <RefreshCw size={16} />
-              START NEW SESSION
-            </button>
+              <div style={{ padding: '0.75rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--bg-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw size={16} className="icon-zap" />
+                START NEW SESSION
+              </div>
+            </BorderGlow>
           </div>
         );
 

@@ -26,7 +26,7 @@ export function PairingModal({ onAccept, onReject }) {
         flexDirection: 'column',
         alignItems: 'center',
         textAlign: 'center',
-      }} className="swiss-grid-bg">
+      }} className="swiss-grid-bg animate-success-pop">
         
         <div style={{
           width: '64px',
@@ -39,7 +39,7 @@ export function PairingModal({ onAccept, onReject }) {
           justifyContent: 'center',
           color: 'var(--accent-lime)',
           marginBottom: '1.5rem',
-        }}>
+        }} className="animate-pulse-glow">
           <ShieldAlert size={32} />
         </div>
 
@@ -54,20 +54,12 @@ export function PairingModal({ onAccept, onReject }) {
         <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
           <button
             onClick={onReject}
+            className="btn-surface"
             style={{
               flex: 1,
-              background: 'transparent',
-              border: '1px solid var(--bg-surface-border)',
-              color: 'var(--text-primary)',
               padding: '0.85rem',
-              fontWeight: 700,
               fontSize: '0.8rem',
               letterSpacing: '0.05em',
-              borderRadius: '2px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
             }}
           >
             <X size={16} />
@@ -76,20 +68,12 @@ export function PairingModal({ onAccept, onReject }) {
           
           <button
             onClick={onAccept}
+            className="btn-lime"
             style={{
               flex: 1,
-              background: 'var(--accent-lime)',
-              border: 'none',
-              color: 'var(--bg-primary)',
               padding: '0.85rem',
-              fontWeight: 800,
               fontSize: '0.8rem',
               letterSpacing: '0.05em',
-              borderRadius: '2px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
             }}
           >
             <Check size={16} />

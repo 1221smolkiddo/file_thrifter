@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
 
 :root {
   --bg-primary: #0B0B0A;
@@ -11,7 +11,8 @@
   --text-muted: #5E5D59;
   
   --accent-lime: #B7FF5A;
-  --accent-lime-glow: rgba(183, 255, 90, 0.12);
+  --accent-lime-glow: rgba(183, 255, 90, 0.15);
+  --accent-lime-hover: #c5ff78;
   --accent-red: #FF4A4A;
   
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -26,12 +27,12 @@
 
 html, body {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  overflow: hidden;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -59,21 +60,30 @@ html, body {
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--bg-surface-border);
-  border-radius: 3px;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--text-secondary);
 }
 
 /* Animations */
+@keyframes borderRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes pulseGlow {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.9; }
@@ -84,11 +94,100 @@ html, body {
   100% { transform: translateY(1000%); }
 }
 
+@keyframes radarPing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(183, 255, 90, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(183, 255, 90, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(183, 255, 90, 0);
+  }
+}
+
+@keyframes radarPingReceiver {
+  0% {
+    box-shadow: 0 0 0 0 rgba(242, 240, 234, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(242, 240, 234, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(242, 240, 234, 0);
+  }
+}
+
+@keyframes progressShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes successPop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUpFade {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes floatBob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes dashFlow {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
 .animate-pulse-glow {
   animation: pulseGlow 2.5s ease-in-out infinite;
 }
 
-/* Button & Input Base Styling */
+.animate-radar-sender {
+  animation: radarPing 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+}
+
+.animate-radar-receiver {
+  animation: radarPingReceiver 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+}
+
+.animate-success-pop {
+  animation: successPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Button & Interactive Base Styling */
 button {
   font-family: var(--font-sans);
   cursor: pointer;
@@ -98,20 +197,274 @@ button {
 }
 
 button:active {
-  transform: scale(0.98);
+  transform: translateY(1px) scale(0.98);
 }
 
+/* ReactBits Border Glow Effects */
+.border-glow-btn {
+  position: relative;
+  z-index: 1;
+  border-radius: 2px;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  padding: 1.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.border-glow-btn::before {
+  content: '';
+  position: absolute;
+  inset: -150%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 60deg,
+    var(--accent-lime) 110deg,
+    #ffffff 130deg,
+    var(--accent-lime) 150deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  animation: borderRotate 3.2s linear infinite;
+  z-index: -2;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.border-glow-btn:hover::before {
+  opacity: 1;
+  animation-duration: 2s;
+}
+
+.border-glow-btn::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  background: var(--bg-surface);
+  border-radius: 1px;
+  z-index: -1;
+  transition: background 0.2s ease;
+}
+
+.border-glow-btn:hover::after {
+  background: var(--bg-surface-hover);
+}
+
+.border-glow-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 24px rgba(183, 255, 90, 0.32), 0 0 45px rgba(183, 255, 90, 0.12);
+}
+
+.border-glow-btn:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: none;
+}
+
+/* Always-glowing variant for high-priority CTA buttons */
+.border-glow-active {
+  position: relative;
+  z-index: 1;
+  border-radius: 2px;
+  overflow: hidden;
+  padding: 1.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.border-glow-active::before {
+  content: '';
+  position: absolute;
+  inset: -150%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 60deg,
+    var(--accent-lime) 110deg,
+    #ffffff 130deg,
+    var(--accent-lime) 150deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  animation: borderRotate 3s linear infinite;
+  z-index: -2;
+  opacity: 0.75;
+  transition: opacity 0.3s ease;
+}
+
+.border-glow-active:hover::before {
+  opacity: 1;
+  animation-duration: 1.8s;
+}
+
+.border-glow-active::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  background: var(--bg-primary);
+  border-radius: 1px;
+  z-index: -1;
+  transition: background 0.2s ease;
+}
+
+.border-glow-active:hover::after {
+  background: var(--bg-surface);
+}
+
+.border-glow-active:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 28px rgba(183, 255, 90, 0.42), 0 0 52px rgba(183, 255, 90, 0.16);
+}
+
+.border-glow-active:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* Standardized Button Hover Classes */
+.btn-primary {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  font-weight: 800;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(242, 240, 234, 0.22);
+}
+
+.btn-primary:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: none;
+}
+
+.btn-lime {
+  background: var(--accent-lime);
+  color: var(--bg-primary);
+  font-weight: 800;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  cursor: pointer;
+}
+
+.btn-lime:hover {
+  background: var(--accent-lime-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 26px rgba(183, 255, 90, 0.35);
+}
+
+.btn-lime:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: none;
+}
+
+.btn-surface {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--bg-surface-border);
+  font-weight: 800;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.btn-surface:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--text-secondary);
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.btn-surface:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: none;
+}
+
+/* Icon Micro-Interactions on Hover */
+.btn-primary:hover .icon-arrow,
+.btn-lime:hover .icon-arrow,
+.btn-surface:hover .icon-arrow,
+.border-glow-btn:hover .icon-arrow,
+.border-glow-active:hover .icon-arrow,
+.touch-target:hover .icon-arrow {
+  transform: translateX(4px);
+}
+
+.btn-primary:hover .icon-download,
+.btn-lime:hover .icon-download,
+.border-glow-btn:hover .icon-download,
+.border-glow-active:hover .icon-download {
+  transform: translateY(2px);
+}
+
+.btn-primary:hover .icon-zap,
+.btn-surface:hover .icon-zap,
+.border-glow-btn:hover .icon-zap,
+.border-glow-active:hover .icon-zap {
+  transform: scale(1.18) rotate(6deg);
+}
+
+.btn-primary:hover .icon-copy,
+.btn-lime:hover .icon-copy,
+.btn-surface:hover .icon-copy,
+.border-glow-btn:hover .icon-copy,
+.border-glow-active:hover .icon-copy {
+  transform: scale(1.12);
+}
+
+.icon-arrow, .icon-download, .icon-zap, .icon-copy {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Interactive Card Utility */
+.interactive-card {
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.interactive-card:hover {
+  border-color: var(--accent-lime) !important;
+  box-shadow: 0 0 28px var(--accent-lime-glow);
+  transform: translateY(-2px);
+}
+
+/* Input Base Styling */
 input, textarea {
   font-family: var(--font-sans);
   background: var(--bg-surface);
   color: var(--text-primary);
   border: 1px solid var(--bg-surface-border);
   outline: none;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 input:focus, textarea:focus {
   border-color: var(--accent-lime);
+  box-shadow: 0 0 14px var(--accent-lime-glow);
 }
 
 /* Responsive Touch Target Helper */

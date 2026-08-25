@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Link as LinkIcon,
 } from 'lucide-react';
+import { BorderGlow } from '../Common/BorderGlow';
 
 export function TransferVisualizer({ transferPayload, isHost, transferRole, onBlastAnother }) {
   const containerRef = useRef(null);
@@ -69,6 +70,8 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
   const isError = status === 'ERROR';
   const isCompleted = ['COMPLETED', 'SENT', 'RECEIVED'].includes(status);
   const isSender = transferRole === 'SENDER' || ['SENDING', 'SENT'].includes(status);
+  const isTransferring = !isCompleted && !isError;
+
   const resultLabel = status === 'SENT'
     ? (isLink ? 'LINK SENT SUCCESSFULLY' : hasTextContent ? 'TEXT SENT SUCCESSFULLY' : 'FILE SENT SUCCESSFULLY')
     : status === 'RECEIVED'
@@ -98,8 +101,10 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
         position: 'relative',
         boxShadow: isCompleted 
           ? '0 0 30px rgba(242, 240, 234, 0.05)' 
-          : 'none',
-        transition: 'all 0.3s ease',
+          : isTransferring
+            ? '0 0 24px rgba(183, 255, 90, 0.04)'
+            : 'none',
+        transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       }} className="swiss-grid-bg">
         
         <div style={{
@@ -110,7 +115,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           fontSize: '0.72rem',
         }} className="mono">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-primary)' }}>
-            <ShieldCheck size={13} />
+            <ShieldCheck size={13} style={{ color: 'var(--accent-lime)' }} />
             <span>DIRECT CONNECTION</span>
           </div>
         </div>
@@ -130,17 +135,21 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             gap: '0.35rem',
             zIndex: 2,
           }}>
-            <div style={{
-              width: '46px',
-              height: '46px',
-              background: 'var(--bg-primary)',
-              border: `2px solid ${isSender ? 'var(--accent-lime)' : 'var(--bg-surface-border)'}`,
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: isSender ? 'var(--accent-lime)' : 'var(--text-secondary)',
-            }}>
+            <div
+              className={isTransferring && isSender ? 'animate-radar-sender' : ''}
+              style={{
+                width: '46px',
+                height: '46px',
+                background: 'var(--bg-primary)',
+                border: `2px solid ${isSender ? 'var(--accent-lime)' : 'var(--bg-surface-border)'}`,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isSender ? 'var(--accent-lime)' : 'var(--text-secondary)',
+                transition: 'all 0.3s ease',
+              }}
+            >
               {isHost ? <Laptop size={22} /> : <Smartphone size={22} />}
             </div>
             <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
@@ -148,7 +157,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             </span>
           </div>
 
-          {/* Stream */}
+          {/* Stream Pipeline */}
           <div style={{
             flex: 1,
             height: '32px',
@@ -159,26 +168,59 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             justifyContent: 'center',
           }}>
             <svg style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+              <defs>
+                <linearGradient id="streamGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="var(--accent-lime)" stopOpacity="0.3" />
+                  <stop offset="50%" stopColor="var(--accent-lime)" stopOpacity="1" />
+                  <stop offset="100%" stopColor="var(--accent-lime)" stopOpacity="0.8" />
+                </linearGradient>
+              </defs>
+
+              {/* Base line */}
               <line
                 x1="0" y1="50%" x2="100%" y2="50%"
                 stroke="var(--bg-surface-border)" strokeWidth="3" strokeDasharray="4 4"
               />
-              {!isCompleted && !isError && (
-                <line
-                  x1="0" y1="50%" x2="100%" y2="50%"
-                  stroke="var(--accent-lime)" strokeWidth="3" strokeDasharray="12 12"
-                  style={{ animation: `dashFlow ${animDuration}s linear infinite` }}
-                />
+
+              {/* Active data packet flow */}
+              {isTransferring && (
+                <>
+                  <line
+                    x1="0" y1="50%" x2="100%" y2="50%"
+                    stroke="url(#streamGlow)" strokeWidth="3.5" strokeDasharray="10 10"
+                    style={{
+                      animation: `dashFlow ${animDuration}s linear infinite`,
+                      filter: 'drop-shadow(0 0 6px var(--accent-lime))',
+                    }}
+                  />
+                  {/* Glowing moving photon */}
+                  <circle
+                    r="3.5"
+                    fill="var(--accent-lime)"
+                    style={{
+                      filter: 'drop-shadow(0 0 8px #B7FF5A)',
+                      animation: `dashFlow ${animDuration * 0.8}s ease-in-out infinite`,
+                    }}
+                    cx="50%"
+                    cy="50%"
+                  />
+                </>
               )}
+
+              {/* Completed solid bridge */}
               {isCompleted && (
                 <line
                   x1="0" y1="50%" x2="100%" y2="50%"
                   stroke="var(--text-primary)" strokeWidth="3.5"
+                  style={{
+                    filter: 'drop-shadow(0 0 4px rgba(242, 240, 234, 0.4))',
+                    transition: 'all 0.4s ease',
+                  }}
                 />
               )}
             </svg>
 
-            {!isCompleted && !isError && (
+            {isTransferring && (
               <div style={{
                 position: 'absolute',
                 top: '-15px',
@@ -189,6 +231,8 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                 borderRadius: '10px',
                 fontSize: '0.7rem',
                 fontWeight: 700,
+                boxShadow: '0 0 10px var(--accent-lime-glow)',
+                animation: 'slideUpFade 0.2s ease',
               }} className="mono">
                 {speedMbps} MB/s
               </div>
@@ -203,17 +247,22 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             gap: '0.35rem',
             zIndex: 2,
           }}>
-            <div style={{
-              width: '46px',
-              height: '46px',
-              background: 'var(--bg-primary)',
-              border: `2px solid ${isCompleted ? 'var(--text-primary)' : 'var(--bg-surface-border)'}`,
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: isCompleted ? 'var(--text-primary)' : 'var(--text-secondary)',
-            }}>
+            <div
+              className={`${isTransferring && !isSender ? 'animate-radar-receiver' : ''} ${isCompleted ? 'animate-success-pop' : ''}`}
+              style={{
+                width: '46px',
+                height: '46px',
+                background: 'var(--bg-primary)',
+                border: `2px solid ${isCompleted ? 'var(--text-primary)' : isTransferring && !isSender ? 'var(--accent-lime)' : 'var(--bg-surface-border)'}`,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isCompleted ? 'var(--text-primary)' : isTransferring && !isSender ? 'var(--accent-lime)' : 'var(--text-secondary)',
+                boxShadow: isCompleted ? '0 0 16px rgba(242, 240, 234, 0.2)' : 'none',
+                transition: 'all 0.3s ease',
+              }}
+            >
               {!isHost ? <Laptop size={22} /> : <Smartphone size={22} />}
             </div>
             <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }} className="mono">
@@ -222,7 +271,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           </div>
         </div>
 
-        {/* Progress */}
+        {/* Progress Section */}
         <div style={{
           marginTop: '1.25rem',
           display: 'flex',
@@ -248,12 +297,14 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                 fontSize: '1.4rem',
                 fontWeight: 800,
                 color: isError ? 'var(--accent-red)' : isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
+                transition: 'color 0.3s ease',
               }}>
                 {percentage}%
               </span>
             </div>
           </div>
 
+          {/* Progress Bar with Shimmer */}
           <div style={{
             width: '100%',
             height: '8px',
@@ -266,9 +317,14 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             <div style={{
               width: `${percentage}%`,
               height: '100%',
-              background: isError ? 'var(--accent-red)' : isCompleted ? 'var(--text-primary)' : 'var(--accent-lime)',
-              transition: 'width 0.1s linear',
-              boxShadow: isCompleted ? 'none' : '0 0 12px var(--accent-lime-glow)',
+              background: isError 
+                ? 'var(--accent-red)' 
+                : isCompleted 
+                  ? 'var(--text-primary)' 
+                  : 'linear-gradient(90deg, #99e63c 0%, #b7ff5a 50%, #d8ff94 100%)',
+              transition: 'width 0.15s ease-out',
+              boxShadow: isCompleted ? 'none' : '0 0 14px var(--accent-lime-glow)',
+              position: 'relative',
             }} />
           </div>
 
@@ -281,8 +337,14 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
             <span>{formatSize(transferredBytes)} / {formatSize(totalBytes)}</span>
             <span>
               {resultLabel ? (
-                <span style={{ color: isError ? 'var(--accent-red)' : 'var(--text-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  {!isError && <CheckCircle2 size={13} />} {resultLabel}
+                <span className="animate-success-pop" style={{
+                  color: isError ? 'var(--accent-red)' : 'var(--text-primary)',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}>
+                  {!isError && <CheckCircle2 size={13} style={{ color: 'var(--accent-lime)' }} />} {resultLabel}
                 </span>
               ) : `SPEED: ${speedMbps} MB/s`}
             </span>
@@ -290,8 +352,9 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
 
           {isError && <p role="alert" style={{ margin: 0, color: 'var(--accent-red)', fontSize: '0.75rem' }} className="mono">{errorMessage || 'The transfer could not be completed.'}</p>}
 
+          {/* Shared Text / Link Panel */}
           {fileInfo.content && (
-            <div style={{
+            <div className="animate-slide-up" style={{
               display: 'flex',
               flexDirection: 'column',
               background: 'var(--bg-primary)',
@@ -299,6 +362,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
               borderRadius: '3px',
               overflow: 'hidden',
               marginTop: '0.2rem',
+              transition: 'border-color 0.2s ease',
             }}>
               <div style={{
                 display: 'flex',
@@ -318,44 +382,35 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
                       href={linkHref}
                       target="_blank"
                       rel="noopener noreferrer"
+                      className="border-glow-btn"
                       style={{
-                        background: 'transparent',
-                        border: '1px solid var(--bg-surface-border)',
-                        color: 'var(--text-secondary)',
-                        padding: '0.15rem 0.4rem',
+                        padding: '0.2rem 0.5rem',
                         fontSize: '0.65rem',
                         fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
                         gap: '0.25rem',
-                        borderRadius: '2px',
                         textDecoration: 'none',
+                        color: 'var(--text-primary)',
                       }}
                       title="Open link in new tab"
                     >
-                      <ExternalLink size={11} />
+                      <ExternalLink size={11} className="icon-arrow" />
                       OPEN
                     </a>
                   )}
                   <button
                     type="button"
                     onClick={handleCopyContent}
+                    className={copied ? 'btn-lime' : 'border-glow-btn'}
                     style={{
-                      background: copied ? 'var(--accent-lime)' : 'transparent',
-                      border: `1px solid ${copied ? 'var(--accent-lime)' : 'var(--bg-surface-border)'}`,
-                      color: copied ? 'var(--bg-primary)' : 'var(--text-primary)',
-                      padding: '0.15rem 0.45rem',
+                      padding: '0.2rem 0.55rem',
                       fontSize: '0.65rem',
                       fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
                       gap: '0.25rem',
-                      borderRadius: '2px',
-                      cursor: 'pointer',
+                      color: copied ? 'var(--bg-primary)' : 'var(--text-primary)',
                     }}
                     title="Copy to clipboard"
                   >
-                    {copied ? <Check size={11} /> : <Copy size={11} />}
+                    {copied ? <Check size={11} className="icon-copy" /> : <Copy size={11} className="icon-copy" />}
                     {copied ? 'COPIED!' : 'COPY'}
                   </button>
                 </div>
@@ -385,91 +440,107 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
         </div>
       </div>
 
+      {/* Action Buttons with ReactBits Border Glow */}
       {(isCompleted || isError) && (
-        <div style={{
+        <div className="animate-slide-up" style={{
           display: 'grid',
           gridTemplateColumns: (isSender && fileInfo.content && !downloadUrl) ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
           gap: '0.65rem',
           width: '100%',
         }}>
           {downloadUrl && (
-            <a
+            <BorderGlow
+              as="a"
               href={downloadUrl}
               download={fileInfo.name}
-              style={{
-                background: 'var(--accent-lime)',
-                color: 'var(--bg-primary)',
-                padding: '0.8rem',
-                fontWeight: 800,
-                fontSize: '0.85rem',
-                letterSpacing: '0.06em',
-                borderRadius: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-                textDecoration: 'none',
-              }}
+              glowColor="var(--accent-lime)"
+              backgroundColor="var(--accent-lime)"
+              alwaysActive={true}
+              speed={2.6}
+              style={{ width: '100%', textDecoration: 'none' }}
             >
-              <Download size={17} />
-              DOWNLOAD FILE
-            </a>
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  color: 'var(--bg-primary)',
+                  letterSpacing: '0.06em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  width: '100%',
+                }}
+              >
+                <Download size={18} className="icon-download" />
+                DOWNLOAD FILE
+              </div>
+            </BorderGlow>
           )}
           {fileInfo.content && !downloadUrl && (
-            <button
+            <BorderGlow
+              as="button"
               type="button"
               onClick={handleCopyContent}
-              style={{
-                background: copied ? 'var(--accent-lime)' : 'var(--text-primary)',
-                color: 'var(--bg-primary)',
-                padding: '0.8rem',
-                fontWeight: 800,
-                fontSize: '0.85rem',
-                letterSpacing: '0.06em',
-                borderRadius: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-              }}
+              glowColor="var(--accent-lime)"
+              backgroundColor={copied ? 'var(--accent-lime)' : 'var(--text-primary)'}
+              alwaysActive={true}
+              speed={2.6}
+              style={{ width: '100%' }}
             >
-              {copied ? <Check size={17} /> : <Copy size={17} />}
-              {copied
-                ? (isLink ? 'LINK COPIED' : 'TEXT COPIED')
-                : (isLink ? 'COPY LINK' : 'COPY TEXT')}
-            </button>
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  color: 'var(--bg-primary)',
+                  letterSpacing: '0.06em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  width: '100%',
+                }}
+              >
+                {copied ? <Check size={18} className="icon-copy" /> : <Copy size={18} className="icon-copy" />}
+                {copied
+                  ? (isLink ? 'LINK COPIED' : 'TEXT COPIED')
+                  : (isLink ? 'COPY LINK' : 'COPY TEXT')}
+              </div>
+            </BorderGlow>
           )}
           {(isSender || isError) && (
-            <button
+            <BorderGlow
+              as="button"
               onClick={onBlastAnother}
-              style={{
-                background: (downloadUrl || fileInfo.content) ? 'var(--bg-surface)' : 'var(--text-primary)',
-                color: (downloadUrl || fileInfo.content) ? 'var(--text-primary)' : 'var(--bg-primary)',
-                border: (downloadUrl || fileInfo.content) ? '1px solid var(--bg-surface-border)' : 'none',
-                padding: '0.8rem',
-                fontWeight: 800,
-                fontSize: '0.85rem',
-                letterSpacing: '0.06em',
-                borderRadius: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-              }}
+              glowColor="var(--accent-lime)"
+              secondaryColor="#ffffff"
+              backgroundColor="var(--bg-surface)"
+              pointerTracked={true}
+              style={{ width: '100%' }}
             >
-              <Zap size={17} />
-              TRANSFER ANOTHER
-            </button>
+              <div
+                style={{
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  color: 'var(--text-primary)',
+                  letterSpacing: '0.06em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  width: '100%',
+                }}
+              >
+                <Zap size={18} className="icon-zap" />
+                TRANSFER ANOTHER
+              </div>
+            </BorderGlow>
           )}
         </div>
       )}
-
-      <style>{`
-        @keyframes dashFlow {
-          from { stroke-dashoffset: 24; }
-          to { stroke-dashoffset: 0; }
-        }
-      `}</style>
     </div>
   );
 }
