@@ -52,8 +52,6 @@ export function Navbar({ appState, sessionData, onDisconnect }) {
             height: '30px',
             borderRadius: '6px',
             objectFit: 'cover',
-            border: '1px solid rgba(0, 102, 255, 0.4)',
-            boxShadow: '0 0 12px rgba(0, 102, 255, 0.25)',
           }}
         />
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
