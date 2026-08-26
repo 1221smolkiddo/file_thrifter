@@ -62,11 +62,6 @@ class SessionManager {
       expirationTimer: setTimeout(() => this.expireSession(displayId), config.SESSION_TTL_MS),
       // Local discovery
       ipHash: clientIpHash,
-      // Reconnection grace period
-      reconnectToken: null,
-      reconnectTokenHash: null,
-      reconnectGraceTimer: null,
-      disconnectedRole: null,
       // Relay state
       relayActive: false,
       relayBytesTransferred: 0,
@@ -242,8 +237,9 @@ class SessionManager {
   // ─── Reconnection Grace Period ───
 
   /**
-   * Handle a socket disconnecting (close/error).
-   * If session is CONNECTED, enters a grace period instead of immediate destruction.
+  /**
+   * Handle a socket disconnecting (close/error/explicit).
+   * Immediately notifies the peer and destroys the session.
    * @param {WebSocket} ws
    */
   handleDisconnect(ws) {
@@ -255,160 +251,12 @@ class SessionManager {
 
     logger.session('PEER_DISCONNECTED', binding.displayId);
 
-    // If session is CONNECTED, enter reconnection grace period
-    if (session.state === SESSION_STATE.CONNECTED) {
-      this._enterGracePeriod(session, binding.role);
-      return;
-    }
-
-    // For non-connected sessions (WAITING, PAIRING), destroy immediately
     const otherWs = binding.role === 'host' ? session.guestWs : session.hostWs;
     if (otherWs && otherWs.readyState === WebSocket.OPEN) {
       otherWs.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
     }
 
     this._destroySession(binding.displayId);
-  }
-
-  /**
-   * Enter reconnection grace period. Generate a token for the disconnected peer
-   * and notify the remaining peer.
-   * @private
-   */
-  _enterGracePeriod(session, disconnectedRole) {
-    // Generate reconnect token
-    const rawToken = crypto.randomBytes(16).toString('hex');
-    session.reconnectTokenHash = hashSecret(rawToken);
-    session.disconnectedRole = disconnectedRole;
-
-    // Clear the disconnected socket reference
-    if (disconnectedRole === 'host') {
-      session.hostWs = null;
-    } else {
-      session.guestWs = null;
-    }
-
-    // Notify the remaining peer
-    const remainingWs = disconnectedRole === 'host' ? session.guestWs : session.hostWs;
-    if (remainingWs && remainingWs.readyState === WebSocket.OPEN) {
-      remainingWs.send(JSON.stringify({ type: 'PEER_RECONNECTING' }));
-    }
-
-    // Set grace timer — if peer doesn't reconnect within the window, destroy
-    session.reconnectGraceTimer = setTimeout(() => {
-      logger.session('RECONNECT_GRACE_EXPIRED', session.displayId);
-      session.reconnectTokenHash = null;
-      session.disconnectedRole = null;
-
-      // Notify remaining peer that reconnection failed
-      const ws = disconnectedRole === 'host' ? session.guestWs : session.hostWs;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
-      }
-
-      this._destroySession(session.displayId);
-    }, config.RECONNECT_GRACE_MS);
-
-    metrics.increment('reconnect_attempts');
-    logger.session('RECONNECT_GRACE_STARTED', session.displayId);
-
-    // The reconnect token is returned here but must be sent to the disconnecting
-    // peer via the RECONNECT_TOKEN message BEFORE the socket closes.
-    // In practice, we send the token proactively when the session first connects.
-    return rawToken;
-  }
-
-  /**
-   * Attempt to reconnect a peer using a reconnect token.
-   * @param {string} displayId - The session display ID
-   * @param {string} reconnectToken - The raw reconnect token
-   * @param {WebSocket} newWs - The new WebSocket connection
-   * @returns {{ success: boolean, error?: string }}
-   */
-  reconnectSession(displayId, reconnectToken, newWs) {
-    const session = this.sessions.get(displayId);
-
-    if (!session) {
-      return { success: false, error: 'Session not found' };
-    }
-
-    if (!session.reconnectTokenHash || !session.disconnectedRole) {
-      return { success: false, error: 'No reconnection pending for this session' };
-    }
-
-    // Verify token
-    if (!verifySecret(reconnectToken, session.reconnectTokenHash)) {
-      return { success: false, error: 'Invalid reconnect token' };
-    }
-
-    // Clear grace timer and token
-    if (session.reconnectGraceTimer) {
-      clearTimeout(session.reconnectGraceTimer);
-      session.reconnectGraceTimer = null;
-    }
-
-    // Rebind the socket
-    const role = session.disconnectedRole;
-    if (role === 'host') {
-      session.hostWs = newWs;
-    } else {
-      session.guestWs = newWs;
-    }
-
-    this.socketToSession.set(newWs, { displayId, role });
-    session.reconnectTokenHash = null;
-    session.disconnectedRole = null;
-
-    // Notify both peers
-    const remainingWs = role === 'host' ? session.guestWs : session.hostWs;
-    if (remainingWs && remainingWs.readyState === WebSocket.OPEN) {
-      remainingWs.send(JSON.stringify({ type: 'RECONNECTED' }));
-    }
-    if (newWs.readyState === WebSocket.OPEN) {
-      newWs.send(JSON.stringify({
-        type: 'RECONNECTED',
-        displayId,
-        iceServers: config.getIceServers(),
-      }));
-    }
-
-    // Reset idle timeout
-    this._setSessionExpiry(session, config.SESSION_IDLE_TIMEOUT_MS, 'inactive');
-
-    metrics.increment('reconnect_successes');
-    logger.session('RECONNECT_SUCCESS', displayId);
-
-    return { success: true, role };
-  }
-
-  /**
-   * Generate and send reconnect token to a peer proactively.
-   * Called when a session transitions to CONNECTED so both peers have a token
-   * ready before any disconnection event.
-   * @param {object} session
-   * @returns {{ hostToken: string, guestToken: string }}
-   */
-  generateReconnectTokens(session) {
-    // We generate one shared token per session (either peer can use it once)
-    const rawToken = crypto.randomBytes(16).toString('hex');
-    // Store it temporarily — it gets hashed on first use in _enterGracePeriod
-    session._preGeneratedReconnectToken = rawToken;
-
-    // Send to both peers
-    const tokenMsg = JSON.stringify({
-      type: 'RECONNECT_TOKEN',
-      reconnectToken: rawToken,
-      sessionId: session.displayId,
-    });
-
-    if (session.hostWs && session.hostWs.readyState === WebSocket.OPEN) {
-      session.hostWs.send(tokenMsg);
-    }
-    if (session.guestWs && session.guestWs.readyState === WebSocket.OPEN) {
-      session.guestWs.send(tokenMsg);
-    }
-
-    return rawToken;
   }
 
   // ─── Local Discovery ───
@@ -567,15 +415,8 @@ class SessionManager {
       session.expirationTimer = null;
     }
 
-    // Clear reconnect grace timer
-    if (session.reconnectGraceTimer) {
-      clearTimeout(session.reconnectGraceTimer);
-      session.reconnectGraceTimer = null;
-    }
-
     // Invalidate credentials
     session.secretHash = null;
-    session.reconnectTokenHash = null;
 
     // Remove socket-to-session bindings
     // (WeakMap entries will be GC'd when sockets are GC'd, but we track for completeness)

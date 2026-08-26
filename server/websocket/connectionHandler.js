@@ -91,11 +91,6 @@ export function createConnectionHandler(ws, sessionManager, clientIp) {
           ws.send(JSON.stringify({ type: SERVER_MSG.PONG }));
           break;
 
-        // ─── Reconnection ───
-        case CLIENT_MSG.RECONNECT:
-          handleReconnect(ws, sessionManager, clientIp, data);
-          break;
-
         // ─── Local Discovery ───
         case CLIENT_MSG.DISCOVER_LOCAL:
           handleDiscoverLocal(ws, sessionManager, clientIp, ipHash);
@@ -214,12 +209,6 @@ function handleAcceptConnection(ws, sessionManager) {
     ws.send(errorResponse('ACCEPT_FAILED', 'No pending connection request to accept.'));
     return;
   }
-
-  // After successful connection, send reconnect tokens to both peers
-  const session = sessionManager.getSession(binding.displayId);
-  if (session) {
-    sessionManager.generateReconnectTokens(session);
-  }
   // On success, SessionManager sends SESSION_CONNECTED to both peers
 }
 
@@ -261,31 +250,6 @@ function handleWebRtcSignal(ws, sessionManager, clientIp, data) {
 function handleDisconnect(ws, sessionManager) {
   sessionManager.handleDisconnect(ws);
   ws.close();
-}
-
-// ─── Reconnection Handler ────────────────────────────────────────
-
-function handleReconnect(ws, sessionManager, clientIp, data) {
-  // Rate limit reconnect attempts
-  const rl = rateLimiter.check('RECONNECT', clientIp, config.RATE_LIMIT_JOIN_SESSION);
-  if (!rl.allowed) {
-    metrics.increment('rate_limit_hits');
-    ws.send(errorResponse('RATE_LIMITED', 'Too many reconnect attempts. Please wait.'));
-    return;
-  }
-
-  // Ensure this socket isn't already in a session
-  const existing = sessionManager.getBinding(ws);
-  if (existing) {
-    ws.send(errorResponse('ALREADY_IN_SESSION', 'You are already in a session.'));
-    return;
-  }
-
-  const result = sessionManager.reconnectSession(data.sessionId, data.reconnectToken, ws);
-  if (!result.success) {
-    ws.send(errorResponse('RECONNECT_FAILED', result.error));
-  }
-  // On success, SessionManager sends RECONNECTED to both peers
 }
 
 // ─── Local Discovery Handler ─────────────────────────────────────

@@ -40,6 +40,9 @@ export default function App() {
   const incomingFileRef = useRef(null);
   const downloadUrlsRef = useRef([]);
   const sendDataRef = useRef(null);
+  const lastReceiverUpdateRef = useRef(0);
+  const lastReceiverBytesRef = useRef(0);
+  const receiverSpeedMbpsRef = useRef('0.0');
 
   const revokeDownloadUrls = useCallback(() => {
     if (downloadUrlsRef.current && downloadUrlsRef.current.length > 0) {
@@ -121,41 +124,60 @@ export default function App() {
       incoming.chunks.push(data);
       incoming.transferredBytes += data.byteLength;
 
-      const batch = incomingBatchRef.current;
-      const completedBytes = batch ? batch.completedBytes : 0;
-      const overallTransferred = completedBytes + incoming.transferredBytes;
-      const totalBytes = batch ? batch.totalBytes : incoming.fileInfo.size;
-      const overallPercentage = totalBytes > 0 ? Math.min(100, Math.round((overallTransferred / totalBytes) * 100)) : 100;
-      const filePercentage = incoming.fileInfo.size > 0 ? Math.min(100, Math.round((incoming.transferredBytes / incoming.fileInfo.size) * 100)) : 100;
+      // Consolidate raw ArrayBuffers into Blob sub-parts every 16 MB (256 chunks of 64KB)
+      if (incoming.chunks.length >= 256) {
+        if (!incoming.blobParts) incoming.blobParts = [];
+        incoming.blobParts.push(new Blob(incoming.chunks));
+        incoming.chunks = [];
+      }
 
-      setTransferPayload((previous) => {
-        if (!previous) return previous;
-        const updatedFiles = (previous.files || []).map((f, idx) => {
-          if (idx === incoming.fileIndex || f.id === incoming.id) {
-            return {
-              ...f,
+      const now = performance.now();
+      if (now - lastReceiverUpdateRef.current >= 100) {
+        const batch = incomingBatchRef.current;
+        const completedBytes = batch ? batch.completedBytes : 0;
+        const overallTransferred = completedBytes + incoming.transferredBytes;
+        const totalBytes = batch ? batch.totalBytes : incoming.fileInfo.size;
+        const overallPercentage = totalBytes > 0 ? Math.min(100, Math.round((overallTransferred / totalBytes) * 100)) : 100;
+        const filePercentage = incoming.fileInfo.size > 0 ? Math.min(100, Math.round((incoming.transferredBytes / incoming.fileInfo.size) * 100)) : 100;
+
+        const elapsed = now - lastReceiverUpdateRef.current;
+        if (elapsed > 0) {
+          const bytesDelta = overallTransferred - lastReceiverBytesRef.current;
+          receiverSpeedMbpsRef.current = ((bytesDelta / elapsed) * 1000 / (1024 * 1024)).toFixed(1);
+          lastReceiverBytesRef.current = overallTransferred;
+        }
+        lastReceiverUpdateRef.current = now;
+
+        setTransferPayload((previous) => {
+          if (!previous) return previous;
+          const updatedFiles = (previous.files || []).map((f, idx) => {
+            if (idx === incoming.fileIndex || f.id === incoming.id) {
+              return {
+                ...f,
+                transferredBytes: incoming.transferredBytes,
+                percentage: filePercentage,
+                status: 'TRANSFERRING',
+              };
+            }
+            return f;
+          });
+
+          return {
+            ...previous,
+            transferredBytes: overallTransferred,
+            percentage: overallPercentage,
+            speedMbps: receiverSpeedMbpsRef.current,
+            status: 'RECEIVING',
+            activeFileIndex: incoming.fileIndex,
+            currentFile: {
+              ...incoming.fileInfo,
               transferredBytes: incoming.transferredBytes,
               percentage: filePercentage,
-              status: 'TRANSFERRING',
-            };
-          }
-          return f;
+            },
+            files: updatedFiles,
+          };
         });
-
-        return {
-          ...previous,
-          transferredBytes: overallTransferred,
-          percentage: overallPercentage,
-          status: 'RECEIVING',
-          activeFileIndex: incoming.fileIndex,
-          currentFile: {
-            ...incoming.fileInfo,
-            transferredBytes: incoming.transferredBytes,
-            percentage: filePercentage,
-          },
-          files: updatedFiles,
-        };
-      });
+      }
       return;
     }
 
@@ -236,6 +258,7 @@ export default function App() {
             type: fileInfo.type || 'application/octet-stream',
           },
           chunks: [],
+          blobParts: [],
           transferredBytes: 0,
         };
 
@@ -300,7 +323,12 @@ export default function App() {
         const incoming = incomingFileRef.current;
         if (!incoming || incoming.id !== message.id) return;
 
-        const blob = new Blob(incoming.chunks, { type: incoming.fileInfo.type });
+        const allParts = incoming.blobParts && incoming.blobParts.length > 0
+          ? [...incoming.blobParts, ...incoming.chunks]
+          : incoming.chunks;
+        const blob = new Blob(allParts, { type: incoming.fileInfo.type });
+        incoming.blobParts = [];
+        incoming.chunks = [];
         const downloadUrl = URL.createObjectURL(blob);
         downloadUrlsRef.current.push(downloadUrl);
 
@@ -654,19 +682,6 @@ export default function App() {
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               Verifying session token and establishing peer handshake
-            </p>
-          </div>
-        );
-
-      case APP_STATE.PEER_RECONNECTING:
-      case APP_STATE.RECONNECTING:
-        return (
-          <div style={{ textAlign: 'center', padding: '4rem 1rem' }} className="mono">
-            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--accent-lime)' }} className="animate-pulse-glow">
-              {appState === APP_STATE.RECONNECTING ? 'RECONNECTING TO SESSION...' : 'PEER RECONNECTING (30s GRACE)...'}
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Holding session state while network connection recovers
             </p>
           </div>
         );

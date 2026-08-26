@@ -16,9 +16,57 @@ import {
 } from '../lib/webrtc/messages.js';
 
 
-const FILE_CHUNK_BYTES = 16 * 1024;
-const MAX_BUFFERED_BYTES = 512 * 1024;
+const FILE_CHUNK_BYTES = 64 * 1024; // 64 KB network chunk size
+const DISK_BLOCK_BYTES = 2 * 1024 * 1024; // 2 MB disk read block
+const MAX_BUFFERED_BYTES = 4 * 1024 * 1024; // 4 MB send buffer high-water mark
+const BUFFERED_AMOUNT_LOW_THRESHOLD = 512 * 1024; // 512 KB low-water mark
 const WEBRTC_FAILURE_TIMEOUT_MS = 15_000; // 15s to establish WebRTC before fallback
+
+function waitForBufferDrain(channel) {
+  if (!channel || channel.readyState !== 'open' || channel.bufferedAmount <= BUFFERED_AMOUNT_LOW_THRESHOLD) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    let pollInterval = null;
+
+    const cleanup = () => {
+      resolved = true;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      try {
+        channel.removeEventListener('bufferedamountlow', onDrain);
+        channel.removeEventListener('close', onDrain);
+        channel.removeEventListener('error', onDrain);
+      } catch {}
+    };
+
+    const onDrain = () => {
+      if (!resolved) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    const checkDrain = () => {
+      if (channel.readyState !== 'open' || channel.bufferedAmount <= BUFFERED_AMOUNT_LOW_THRESHOLD) {
+        onDrain();
+      }
+    };
+
+    try {
+      channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
+      channel.addEventListener('bufferedamountlow', onDrain, { once: true });
+      channel.addEventListener('close', onDrain, { once: true });
+      channel.addEventListener('error', onDrain, { once: true });
+    } catch {}
+
+    pollInterval = setInterval(checkDrain, 10);
+  });
+}
 
 /**
  * useWebRTC — Manages a WebRTC DataChannel connection.
@@ -348,55 +396,81 @@ export function useWebRTC({
 
         let fileTransferredBytes = 0;
 
-        for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
-          // Flow control backpressure for DataChannel
-          if (!isRelay) {
-            while (channel.readyState === 'open' && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
-              await new Promise((resolve) => setTimeout(resolve, 10));
-            }
-
-            if (channel.readyState !== 'open') {
-              throw new Error('P2P connection closed during file transfer');
-            }
-          }
-
-          const chunk = await file.slice(offset, offset + FILE_CHUNK_BYTES).arrayBuffer();
-
-          if (isRelay) {
-            sendRelayDataRef.current(new Uint8Array(chunk));
-            if (overallTransferredBytes % MAX_BUFFERED_BYTES === 0) {
-              await new Promise((resolve) => setTimeout(resolve, 10));
-            }
-          } else {
-            channel.send(chunk);
-          }
-
-          fileTransferredBytes += chunk.byteLength;
-          overallTransferredBytes += chunk.byteLength;
-
-          // Calculate smoothed speed metric every 250ms
-          const now = performance.now();
-          const elapsed = now - lastSpeedCalcTime;
-          if (elapsed >= 250) {
-            const bytesSinceLast = overallTransferredBytes - lastSpeedBytes;
-            const bytesPerSec = (bytesSinceLast / elapsed) * 1000;
-            currentSpeedMbps = (bytesPerSec / (1024 * 1024)).toFixed(1);
-            lastSpeedCalcTime = now;
-            lastSpeedBytes = overallTransferredBytes;
-          }
-
-          onProgress?.({
-            fileId: meta.id,
-            fileIndex: i,
-            fileTransferredBytes,
-            fileTotalBytes: file.size,
-            overallTransferredBytes,
-            totalBatchBytes: totalBytes,
-            speedMbps: currentSpeedMbps,
-            filePercentage: file.size > 0 ? Math.min(100, Math.round((fileTransferredBytes / file.size) * 100)) : 100,
-            overallPercentage: totalBytes > 0 ? Math.min(100, Math.round((overallTransferredBytes / totalBytes) * 100)) : 100,
-          });
+        if (!isRelay && channel) {
+          try {
+            channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_THRESHOLD;
+          } catch {}
         }
+
+        // Read in contiguous 2 MB blocks from disk into memory, then synchronously slice 64 KB sub-chunks from RAM
+        for (let blockOffset = 0; blockOffset < file.size; blockOffset += DISK_BLOCK_BYTES) {
+          const blockEnd = Math.min(file.size, blockOffset + DISK_BLOCK_BYTES);
+          const blockBuffer = await file.slice(blockOffset, blockEnd).arrayBuffer();
+
+          for (let chunkOffset = 0; chunkOffset < blockBuffer.byteLength; chunkOffset += FILE_CHUNK_BYTES) {
+            // Flow control backpressure for DataChannel using native bufferedamountlow
+            if (!isRelay) {
+              if (channel.bufferedAmount > MAX_BUFFERED_BYTES) {
+                await waitForBufferDrain(channel);
+              }
+
+              if (channel.readyState !== 'open') {
+                throw new Error('P2P connection closed during file transfer');
+              }
+            }
+
+            const chunkEnd = Math.min(blockBuffer.byteLength, chunkOffset + FILE_CHUNK_BYTES);
+            const chunk = blockBuffer.slice(chunkOffset, chunkEnd);
+
+            if (isRelay) {
+              sendRelayDataRef.current(new Uint8Array(chunk));
+              if (overallTransferredBytes % MAX_BUFFERED_BYTES === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
+            } else {
+              channel.send(chunk);
+            }
+
+            fileTransferredBytes += chunk.byteLength;
+            overallTransferredBytes += chunk.byteLength;
+
+            // Calculate smoothed speed metric every 100ms
+            const now = performance.now();
+            const elapsed = now - lastSpeedCalcTime;
+            if (elapsed >= 100) {
+              const bytesSinceLast = overallTransferredBytes - lastSpeedBytes;
+              const bytesPerSec = (bytesSinceLast / elapsed) * 1000;
+              currentSpeedMbps = (bytesPerSec / (1024 * 1024)).toFixed(1);
+              lastSpeedCalcTime = now;
+              lastSpeedBytes = overallTransferredBytes;
+
+              onProgress?.({
+                fileId: meta.id,
+                fileIndex: i,
+                fileTransferredBytes,
+                fileTotalBytes: file.size,
+                overallTransferredBytes,
+                totalBatchBytes: totalBytes,
+                speedMbps: currentSpeedMbps,
+                filePercentage: file.size > 0 ? Math.min(100, Math.round((fileTransferredBytes / file.size) * 100)) : 100,
+                overallPercentage: totalBytes > 0 ? Math.min(100, Math.round((overallTransferredBytes / totalBytes) * 100)) : 100,
+              });
+            }
+          }
+        }
+
+        // Final progress dispatch for 100% on this file
+        onProgress?.({
+          fileId: meta.id,
+          fileIndex: i,
+          fileTransferredBytes: file.size,
+          fileTotalBytes: file.size,
+          overallTransferredBytes,
+          totalBatchBytes: totalBytes,
+          speedMbps: currentSpeedMbps,
+          filePercentage: 100,
+          overallPercentage: totalBytes > 0 ? Math.min(100, Math.round((overallTransferredBytes / totalBytes) * 100)) : 100,
+        });
 
         // Send FILE_COMPLETE
         const fileCompleteMsg = createFileCompleteMessage(meta.id, { batchId, fileIndex: i });

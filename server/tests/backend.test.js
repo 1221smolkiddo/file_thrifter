@@ -339,7 +339,7 @@ describe('SessionManager Unit Tests', () => {
     assert.equal(local2[0].displayId, s2.displayId);
   });
 
-  it('should handle reconnection grace period and successful re-pairing', () => {
+  it('should immediately notify peer and destroy session on disconnect', () => {
     const hostWs = createMockWs();
     const guestWs = createMockWs();
     const { displayId, secret } = sm.createSession(hostWs);
@@ -349,33 +349,18 @@ describe('SessionManager Unit Tests', () => {
     const session = sm.getSession(displayId);
     assert.equal(session.state, SESSION_STATE.CONNECTED);
 
-    // Guest disconnects unexpectedly
+    // Guest disconnects
     hostWs._sent.length = 0;
     guestWs._sent.length = 0;
 
     sm.handleDisconnect(guestWs);
 
-    // Host should receive PEER_RECONNECTING
-    const reconnectingMsg = hostWs._sent.find(m => m.type === 'PEER_RECONNECTING');
-    assert.ok(reconnectingMsg, 'Host should be notified peer is reconnecting');
+    // Host should immediately receive PEER_DISCONNECTED
+    const disconnectedMsg = hostWs._sent.find(m => m.type === 'PEER_DISCONNECTED');
+    assert.ok(disconnectedMsg, 'Host should be immediately notified peer disconnected');
 
-    // Session remains alive in memory during grace period
-    assert.equal(sm.sessionCount, 1);
-
-    // Generate/retrieve token and reconnect with a new WebSocket
-    const newGuestWs = createMockWs();
-    // Simulate peer having stored the reconnect token
-    const token = session._preGeneratedReconnectToken || 'some_token';
-    // Reconnect directly with pre-stored token hash
-    session.reconnectTokenHash = hashSecret(token);
-    
-    const reconnectResult = sm.reconnectSession(displayId, token, newGuestWs);
-    assert.ok(reconnectResult.success);
-    assert.equal(reconnectResult.role, 'guest');
-
-    // Both peers receive RECONNECTED notification
-    assert.ok(hostWs._sent.some(m => m.type === 'RECONNECTED'));
-    assert.ok(newGuestWs._sent.some(m => m.type === 'RECONNECTED'));
+    // Session is immediately destroyed with zero grace delay
+    assert.equal(sm.sessionCount, 0);
   });
 
   it('should activate and route binary data through relay mode', () => {
@@ -497,7 +482,7 @@ describe('Integration Tests with All Features', () => {
     }
   });
 
-  it('should perform full connect and receive RECONNECT_TOKEN proactively', async () => {
+  it('should perform full connect and transition to SESSION_CONNECTED', async () => {
     const host = await connectClient(TEST_PORT);
     const guest = await connectClient(TEST_PORT);
     try {

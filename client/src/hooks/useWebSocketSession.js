@@ -15,9 +15,6 @@ export const APP_STATE = {
   TIMED_OUT: 'TIMED_OUT',
   EXPIRED: 'EXPIRED',
   ERROR: 'ERROR',
-  // New states for reconnection
-  PEER_RECONNECTING: 'PEER_RECONNECTING',
-  RECONNECTING: 'RECONNECTING',
 };
 
 export function useWebSocketSession() {
@@ -36,8 +33,6 @@ export function useWebSocketSession() {
   const wsRef = useRef(null);
   const onWebRtcSignalRef = useRef(null);
   const onRelayDataRef = useRef(null);
-  const reconnectTokenRef = useRef(null);
-  const reconnectSessionIdRef = useRef(null);
 
   const appStateRef = useRef(appState);
   const sessionDataRef = useRef(sessionData);
@@ -66,20 +61,8 @@ export function useWebSocketSession() {
 
     socket.onopen = () => {
       console.log('[THRIFT] WebSocket connected to', wsUrl);
-
-      // If we have a reconnect token, attempt to reconnect automatically
-      if (reconnectTokenRef.current && reconnectSessionIdRef.current) {
-        console.log('[THRIFT] Attempting auto-reconnect...');
-        socket.send(JSON.stringify({
-          type: 'RECONNECT',
-          reconnectToken: reconnectTokenRef.current,
-          sessionId: reconnectSessionIdRef.current,
-        }));
-        reconnectTokenRef.current = null;
-      } else {
-        // Send local discovery request on fresh connections
-        socket.send(JSON.stringify({ type: 'DISCOVER_LOCAL' }));
-      }
+      // Send local discovery request on fresh connections
+      socket.send(JSON.stringify({ type: 'DISCOVER_LOCAL' }));
     };
 
     socket.onmessage = (event) => {
@@ -186,33 +169,6 @@ export function useWebSocketSession() {
             break;
           }
 
-          // ─── Reconnection Messages ───
-
-          case 'RECONNECT_TOKEN': {
-            console.log('[THRIFT] Received reconnect token');
-            reconnectTokenRef.current = msg.reconnectToken;
-            reconnectSessionIdRef.current = msg.sessionId;
-            break;
-          }
-
-          case 'PEER_RECONNECTING': {
-            if (appStateRef.current !== APP_STATE.IDLE) {
-              console.log('[THRIFT] Peer is reconnecting...');
-              setAppState(APP_STATE.PEER_RECONNECTING);
-            }
-            break;
-          }
-
-          case 'RECONNECTED': {
-            console.log('[THRIFT] Reconnection successful');
-            setSessionData((prev) => ({
-              ...prev,
-              iceServers: msg.iceServers || prev.iceServers,
-            }));
-            setAppState(APP_STATE.WEBRTC_CONNECTING);
-            break;
-          }
-
           // ─── Local Discovery ───
 
           case 'LOCAL_SESSIONS': {
@@ -265,16 +221,7 @@ export function useWebSocketSession() {
     socket.onclose = () => {
       console.log('[THRIFT] WebSocket closed');
 
-      // If we have a reconnect token, attempt to reconnect
-      if (reconnectTokenRef.current && reconnectSessionIdRef.current) {
-        console.log('[THRIFT] WebSocket closed — will attempt reconnect...');
-        setAppState(APP_STATE.RECONNECTING);
-
-        // Auto-reconnect after a brief delay
-        setTimeout(() => {
-          connectWs();
-        }, 1000);
-      } else if (
+      if (
         appStateRef.current !== APP_STATE.IDLE &&
         appStateRef.current !== APP_STATE.DISCONNECTED &&
         appStateRef.current !== APP_STATE.EXPIRED &&
