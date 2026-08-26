@@ -65,9 +65,6 @@ const config = {
   TURN_SHARED_SECRET: process.env.TURN_SHARED_SECRET || '',
   TURN_CREDENTIAL_TTL_S: parseInt(process.env.TURN_CREDENTIAL_TTL_S, 10) || 21600, // 6 hours
 
-  // Reconnection grace period (how long to hold a session after disconnect)
-  RECONNECT_GRACE_MS: parseInt(process.env.RECONNECT_GRACE_MS, 10) || 30_000, // 30 seconds
-
   // WebSocket relay fallback
   RELAY_MAX_BYTES_PER_SESSION: parseInt(process.env.RELAY_MAX_BYTES, 10) || 500 * 1024 * 1024, // 500 MB
   RELAY_CHUNK_SIZE: parseInt(process.env.RELAY_CHUNK_SIZE, 10) || 64 * 1024, // 64 KB
