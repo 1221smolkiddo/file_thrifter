@@ -847,7 +847,6 @@ export default function App() {
       <FaultyTerminal />
       <Navbar
         appState={appState}
-        sessionData={sessionData}
         onDisconnect={handleDisconnect}
       />
 

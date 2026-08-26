@@ -250,7 +250,7 @@ export function useWebSocketSession() {
     };
   }, [connectWs]);
 
-  const send = (data) => {
+  const send = useCallback((data) => {
     const socket = connectWs();
     if (socket && socket.readyState === WebSocket.OPEN) {
       if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
@@ -269,12 +269,12 @@ export function useWebSocketSession() {
         }
       }, 300);
     }
-  };
+  }, [connectWs]);
 
   const createSession = useCallback(() => {
     setAppState(APP_STATE.CREATING_SESSION);
     send({ type: 'CREATE_SESSION' });
-  }, []);
+  }, [send]);
 
   /**
    * Join a session using the display ID and secret token.
@@ -285,15 +285,15 @@ export function useWebSocketSession() {
     setAppState(APP_STATE.PAIRING);
     setSessionData((prev) => ({ ...prev, displayId: sessionId, isHost: false }));
     send({ type: 'JOIN_SESSION', sessionId, token });
-  }, []);
+  }, [send]);
 
   const sendWebRtcSignal = useCallback((signalMsg) => {
     send(signalMsg);
-  }, []);
+  }, [send]);
 
   const sendKeepAlive = useCallback(() => {
     send({ type: 'PING' });
-  }, []);
+  }, [send]);
 
   const setOnWebRtcSignal = useCallback((handler) => {
     onWebRtcSignalRef.current = handler;
@@ -305,19 +305,19 @@ export function useWebSocketSession() {
 
   const acceptConnection = useCallback(() => {
     send({ type: 'ACCEPT_CONNECTION' });
-  }, []);
+  }, [send]);
 
   const rejectConnection = useCallback(() => {
     send({ type: 'REJECT_CONNECTION' });
     setIncomingRequest(false);
     setAppState(APP_STATE.WAITING_FOR_DEVICE);
-  }, []);
+  }, [send]);
 
   // ─── Relay controls ───
 
   const requestRelay = useCallback(() => {
     send({ type: 'RELAY_REQUEST' });
-  }, []);
+  }, [send]);
 
   const sendRelayData = useCallback((binaryData) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -328,7 +328,7 @@ export function useWebSocketSession() {
   const endRelay = useCallback(() => {
     send({ type: 'RELAY_END' });
     setRelayMode(false);
-  }, []);
+  }, [send]);
 
   const disconnect = useCallback(() => {
     reconnectTokenRef.current = null;

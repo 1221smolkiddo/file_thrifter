@@ -3,7 +3,7 @@ import { X, GlobeLock } from 'lucide-react';
 import { APP_STATE } from '../../hooks/useWebSocketSession';
 import logoImg from '../../assets/logo.jpeg';
 
-export function Navbar({ appState, sessionData, onDisconnect }) {
+export function Navbar({ appState, onDisconnect }) {
   const getStatusBadge = () => {
     switch (appState) {
       case APP_STATE.WAITING_FOR_DEVICE:

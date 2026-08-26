@@ -118,6 +118,8 @@ export function useWebRTC({
   const requestRelayRef = useRef(requestRelay);
   const sendRelayDataRef = useRef(sendRelayData);
 
+  const dataChannelOpenRef = useRef(false);
+
   useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
   useEffect(() => { onDisconnectedRef.current = onDisconnected; }, [onDisconnected]);
   useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
@@ -125,6 +127,7 @@ export function useWebRTC({
   useEffect(() => { sendWsMessageRef.current = sendWsMessage; }, [sendWsMessage]);
   useEffect(() => { requestRelayRef.current = requestRelay; }, [requestRelay]);
   useEffect(() => { sendRelayDataRef.current = sendRelayData; }, [sendRelayData]);
+  useEffect(() => { dataChannelOpenRef.current = dataChannelOpen; }, [dataChannelOpen]);
 
   // ─── Handle relay mode activation ───
 
@@ -233,7 +236,7 @@ export function useWebRTC({
 
     // Set a failure timer — if WebRTC doesn't establish in 15s, request relay fallback
     failureTimerRef.current = setTimeout(() => {
-      if (!destroyedRef.current && !dataChannelOpen && requestRelayRef.current) {
+      if (!destroyedRef.current && !dataChannelOpenRef.current && requestRelayRef.current) {
         console.log('[THRIFT:RTC] WebRTC failed to establish within timeout — requesting relay fallback');
         requestRelayRef.current();
       }

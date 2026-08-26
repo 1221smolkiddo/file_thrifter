@@ -15,6 +15,7 @@ import { parseMessage, CLIENT_MSG, SERVER_MSG, errorResponse } from '../websocke
 import rateLimiter, { RateLimiter } from '../security/rateLimiter.js';
 import metrics, { Metrics } from '../monitoring/metrics.js';
 import { SESSION_STATE } from '../session/sessionState.js';
+import { getClientIp, isOriginAllowed } from '../utils/network.js';
 
 // ─── Helpers ───
 
@@ -437,6 +438,7 @@ describe('Integration Tests with All Features', () => {
 
   after(async () => {
     sm.destroy();
+    rateLimiter.destroy();
     wss.close();
     await new Promise((resolve) => httpServer.close(resolve));
   });
@@ -551,5 +553,48 @@ describe('Integration Tests with All Features', () => {
       host.close();
       guest.close();
     }
+  });
+});
+
+// ─── Deployment & Networking Utilities ───
+
+describe('Production Networking Utilities', () => {
+  it('should extract real client IP from x-forwarded-for header', () => {
+    const mockReq = {
+      headers: { 'x-forwarded-for': '203.0.113.195, 70.41.3.18, 150.172.238.178' },
+      socket: { remoteAddress: '10.0.0.1' },
+    };
+    assert.equal(getClientIp(mockReq), '203.0.113.195');
+  });
+
+  it('should extract real client IP from cf-connecting-ip header', () => {
+    const mockReq = {
+      headers: { 'cf-connecting-ip': '198.51.100.42' },
+      socket: { remoteAddress: '10.0.0.1' },
+    };
+    assert.equal(getClientIp(mockReq), '198.51.100.42');
+  });
+
+  it('should fallback to socket.remoteAddress if no proxy headers', () => {
+    const mockReq = {
+      headers: {},
+      socket: { remoteAddress: '192.168.1.15' },
+    };
+    assert.equal(getClientIp(mockReq), '192.168.1.15');
+  });
+
+  it('should correctly validate allowed frontend origins with trailing slash normalization', () => {
+    // Exact match
+    assert.equal(isOriginAllowed('https://thrift.example.com', 'https://thrift.example.com'), true);
+    // Config with trailing slash vs request without
+    assert.equal(isOriginAllowed('https://thrift.example.com', 'https://thrift.example.com/'), true);
+    // Request with trailing slash vs config without
+    assert.equal(isOriginAllowed('https://thrift.example.com/', 'https://thrift.example.com'), true);
+    // Multiple comma-separated domains
+    assert.equal(isOriginAllowed('https://app.example.com', 'https://thrift.example.com, https://app.example.com'), true);
+    // Wildcard
+    assert.equal(isOriginAllowed('https://random.com', '*'), true);
+    // Unauthorized origin
+    assert.equal(isOriginAllowed('https://malicious.com', 'https://thrift.example.com'), false);
   });
 });

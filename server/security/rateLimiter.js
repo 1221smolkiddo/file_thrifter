@@ -12,6 +12,9 @@ class RateLimiter {
 
     // Cleanup stale entries every 60 seconds
     this._cleanupInterval = setInterval(() => this._cleanup(), 60_000);
+    if (this._cleanupInterval.unref) {
+      this._cleanupInterval.unref();
+    }
   }
 
   /**

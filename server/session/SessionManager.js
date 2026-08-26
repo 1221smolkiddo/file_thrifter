@@ -23,6 +23,9 @@ class SessionManager {
       () => this.cleanupExpired(),
       config.SESSION_CLEANUP_INTERVAL_MS,
     );
+    if (this._cleanupInterval.unref) {
+      this._cleanupInterval.unref();
+    }
   }
 
   /**
