@@ -73,6 +73,10 @@ export function createBatchCompleteMessage(batchId, { totalFiles, totalBytes } =
   }, batchId);
 }
 
+export function createTransferCancelMessage(reason = 'USER_CANCELLED') {
+  return createMessage(DATA_MESSAGE_TYPE.TRANSFER_CANCEL, { reason });
+}
+
 /**
  * Parse supported DataChannel application messages without accepting data from
  * any other transport.
@@ -105,6 +109,7 @@ export function parseDataMessage(data) {
       case DATA_MESSAGE_TYPE.FILE_COMPLETE:
       case DATA_MESSAGE_TYPE.TRANSFER_ACK:
       case DATA_MESSAGE_TYPE.BATCH_COMPLETE:
+      case DATA_MESSAGE_TYPE.TRANSFER_CANCEL:
         return message;
       default:
         return null;

@@ -421,6 +421,17 @@ export default function App() {
         break;
       }
 
+      case DATA_MESSAGE_TYPE.TRANSFER_CANCEL: {
+        console.log('[THRIFT] Transfer cancelled by peer');
+        revokeDownloadUrls();
+        incomingFileRef.current = null;
+        incomingBatchRef.current = null;
+        setTransferPayload(null);
+        setP2pNotice(transferRole === 'SENDER' ? 'Receiver stopped the transfer' : 'Sender stopped the transfer');
+        setAppState(APP_STATE.CONNECTED);
+        break;
+      }
+
       case DATA_MESSAGE_TYPE.TRANSFER_ACK:
         setTransferPayload((previous) => {
           if (!previous) return previous;
@@ -440,7 +451,7 @@ export default function App() {
       default:
         break;
     }
-  }, [sessionData.isHost, showCompletedText, setAppState]);
+  }, [sessionData.isHost, showCompletedText, setAppState, revokeDownloadUrls, transferRole]);
 
   const {
     rtcState,
@@ -450,6 +461,7 @@ export default function App() {
     sendData,
     sendText,
     sendFiles,
+    cancelTransfer,
     cleanup: cleanupWebRTC,
   } = useWebRTC({
     isHost: sessionData.isHost,
@@ -658,6 +670,16 @@ export default function App() {
     setAppState(APP_STATE.CONNECTED);
   }, [revokeDownloadUrls, setAppState]);
 
+  const handleCancelTransfer = useCallback(() => {
+    cancelTransfer();
+    revokeDownloadUrls();
+    incomingFileRef.current = null;
+    incomingBatchRef.current = null;
+    setTransferPayload(null);
+    setP2pNotice('Transfer stopped.');
+    setAppState(APP_STATE.CONNECTED);
+  }, [cancelTransfer, revokeDownloadUrls, setAppState]);
+
   const renderContent = () => {
 
     switch (appState) {
@@ -770,6 +792,7 @@ export default function App() {
             isHost={sessionData.isHost}
             transferRole={transferRole}
             onBlastAnother={handleAnotherTransfer}
+            onCancelTransfer={handleCancelTransfer}
           />
         );
 

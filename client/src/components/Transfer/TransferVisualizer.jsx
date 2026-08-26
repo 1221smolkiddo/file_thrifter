@@ -19,6 +19,7 @@ import {
   Code,
   Clock,
   Loader2,
+  XCircle,
 } from 'lucide-react';
 import { BorderGlow } from '../Common/BorderGlow';
 
@@ -47,7 +48,7 @@ function formatTime(timestamp) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-export function TransferVisualizer({ transferPayload, isHost, transferRole, onBlastAnother }) {
+export function TransferVisualizer({ transferPayload, isHost, transferRole, onBlastAnother, onCancelTransfer }) {
   const containerRef = useRef(null);
   const [copied, setCopied] = useState(false);
 
@@ -636,6 +637,43 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           )}
         </div>
       </div>
+
+      {/* Active Transfer Stop Action */}
+      {isTransferring && onCancelTransfer && (
+        <div className="animate-slide-up" style={{ width: '100%' }}>
+          <button
+            type="button"
+            onClick={onCancelTransfer}
+            className="mono"
+            style={{
+              width: '100%',
+              padding: '0.85rem 1rem',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              letterSpacing: '0.06em',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              cursor: 'pointer',
+              borderRadius: '4px',
+              border: '1px solid var(--accent-red)',
+              background: 'rgba(255, 74, 74, 0.08)',
+              color: 'var(--accent-red)',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 74, 74, 0.18)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 74, 74, 0.08)';
+            }}
+          >
+            <XCircle size={17} />
+            {isSender ? 'STOP SENDING' : 'STOP RECEIVING'}
+          </button>
+        </div>
+      )}
 
       {/* Action Buttons */}
       {(isCompleted || isError) && (

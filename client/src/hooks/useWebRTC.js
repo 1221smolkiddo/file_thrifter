@@ -13,6 +13,7 @@ import {
   createFileCompleteMessage,
   createFileOffer,
   createTextMessage,
+  createTransferCancelMessage,
 } from '../lib/webrtc/messages.js';
 
 
@@ -106,6 +107,7 @@ export function useWebRTC({
   const peerRef = useRef(null);
   const destroyedRef = useRef(false);
   const failureTimerRef = useRef(null);
+  const cancelTransferRef = useRef(false);
 
   // Store latest callbacks in refs to avoid stale closures
   const onConnectedRef = useRef(onConnected);
@@ -342,6 +344,8 @@ export function useWebRTC({
       type: f.type || 'application/octet-stream',
     }));
 
+    cancelTransferRef.current = false;
+
     try {
       // 1. Send BATCH_OFFER
       const { message: batchOfferMsg } = createBatchOfferMessage({
@@ -371,6 +375,11 @@ export function useWebRTC({
 
       // 2. Stream files sequentially
       for (let i = 0; i < files.length; i++) {
+        if (cancelTransferRef.current) {
+          console.log('[THRIFT:RTC] Transfer stopped before file:', i);
+          return false;
+        }
+
         const file = files[i];
         const meta = fileMetaList[i];
 
@@ -404,10 +413,19 @@ export function useWebRTC({
 
         // Read in contiguous 2 MB blocks from disk into memory, then synchronously slice 64 KB sub-chunks from RAM
         for (let blockOffset = 0; blockOffset < file.size; blockOffset += DISK_BLOCK_BYTES) {
+          if (cancelTransferRef.current) {
+            console.log('[THRIFT:RTC] Transfer stopped during disk block read');
+            return false;
+          }
+
           const blockEnd = Math.min(file.size, blockOffset + DISK_BLOCK_BYTES);
           const blockBuffer = await file.slice(blockOffset, blockEnd).arrayBuffer();
 
           for (let chunkOffset = 0; chunkOffset < blockBuffer.byteLength; chunkOffset += FILE_CHUNK_BYTES) {
+            if (cancelTransferRef.current) {
+              console.log('[THRIFT:RTC] Transfer stopped during chunk send');
+              return false;
+            }
             // Flow control backpressure for DataChannel using native bufferedamountlow
             if (!isRelay) {
               if (channel.bufferedAmount > MAX_BUFFERED_BYTES) {
@@ -513,6 +531,16 @@ export function useWebRTC({
     return sendFiles([file], options);
   }, [sendFiles]);
 
+  const cancelTransfer = useCallback(() => {
+    cancelTransferRef.current = true;
+    try {
+      const cancelMsg = createTransferCancelMessage('USER_CANCELLED');
+      sendData(cancelMsg);
+    } catch (err) {
+      console.warn('[THRIFT:RTC] Failed to send cancel message:', err);
+    }
+  }, [sendData]);
+
   // ─── Clean up the connection ───
 
   const cleanup = useCallback(() => {
@@ -540,6 +568,7 @@ export function useWebRTC({
     sendText,
     sendFile,
     sendFiles,
+    cancelTransfer,
     cleanup,
   };
 }
