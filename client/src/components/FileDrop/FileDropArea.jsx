@@ -273,7 +273,7 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
       onDrop={handleDrop}
       style={{
         width: '100%',
-        maxWidth: '600px',
+        maxWidth: '660px',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
@@ -507,35 +507,41 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
 
                 {/* Scrollable Staged Files List */}
                 <div style={{
-                  maxHeight: '220px',
+                  maxHeight: '320px',
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '0.4rem',
+                  gap: '0.5rem',
                 }}>
                   {stagedFiles.map((file, idx) => (
                     <div
                       key={`${file.name}-${idx}`}
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
+                        alignItems: 'flex-start',
                         justifyContent: 'space-between',
                         background: 'var(--bg-primary)',
                         border: '1px solid var(--bg-surface-border)',
-                        borderRadius: '3px',
-                        padding: '0.5rem 0.75rem',
-                        fontSize: '0.8rem',
+                        borderRadius: '4px',
+                        padding: '0.65rem 0.85rem',
+                        fontSize: '0.82rem',
+                        gap: '0.75rem',
                       }}
                       className="mono"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden', flex: 1 }}>
-                        <File size={14} style={{ color: 'var(--accent-lime)', flexShrink: 0 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.55rem', flex: 1, minWidth: 0 }}>
+                        <File size={16} style={{ color: 'var(--accent-lime)', flexShrink: 0, marginTop: '2px' }} />
+                        <span style={{
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                          lineHeight: '1.45',
+                          color: 'var(--text-primary)',
+                        }}>
                           {file.name}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0, marginTop: '2px' }}>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                           {formatSize(file.size)}
                         </span>
                         <button
@@ -544,16 +550,17 @@ export function FileDropArea({ onFileSelected, onFilesSelected, onTextSend, p2pN
                           style={{
                             background: 'transparent',
                             color: 'var(--text-muted)',
-                            padding: '0.1rem',
+                            padding: '0.15rem',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
+                            borderRadius: '3px',
                           }}
                           title="Remove file"
                           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-red)'; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
                         >
-                          <X size={14} />
+                          <X size={15} />
                         </button>
                       </div>
                     </div>

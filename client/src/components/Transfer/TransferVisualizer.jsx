@@ -152,7 +152,7 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
   return (
     <div style={{
       width: '100%',
-      maxWidth: '560px',
+      maxWidth: '660px',
       margin: '0 auto',
       display: 'flex',
       flexDirection: 'column',
@@ -361,16 +361,22 @@ export function TransferVisualizer({ transferPayload, isHost, transferRole, onBl
           gap: '0.65rem',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.15rem' }}>
+            <div style={{ flex: 1, minWidth: 0, paddingRight: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', marginBottom: '0.2rem' }}>
                 {isBatch ? (
-                  <Files size={16} style={{ color: 'var(--accent-lime)' }} />
+                  <Files size={17} style={{ color: 'var(--accent-lime)', flexShrink: 0, marginTop: '2px' }} />
                 ) : isLink ? (
-                  <LinkIcon size={16} style={{ color: 'var(--accent-lime)' }} />
+                  <LinkIcon size={17} style={{ color: 'var(--accent-lime)', flexShrink: 0, marginTop: '2px' }} />
                 ) : (
-                  <FileText size={16} style={{ color: 'var(--accent-lime)' }} />
+                  <FileText size={17} style={{ color: 'var(--accent-lime)', flexShrink: 0, marginTop: '2px' }} />
                 )}
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, wordBreak: 'break-all' }}>
+                <h3 style={{
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                  lineHeight: '1.4',
+                }}>
                   {displayTitle}
                 </h3>
               </div>
