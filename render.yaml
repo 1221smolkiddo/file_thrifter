@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: file-thrifter-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: FRONTEND_ORIGIN
+        value: https://file-thrifter.vercel.app,https://*.vercel.app,http://localhost:5173
+      - key: STUN_SERVERS
+        value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
+      - key: LOG_LEVEL
+        value: INFO
