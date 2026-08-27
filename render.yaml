@@ -13,7 +13,7 @@ services:
       - key: PORT
         value: 4000
       - key: FRONTEND_ORIGIN
-        value: https://file-thrifter.vercel.app,https://*.vercel.app,http://localhost:5173
+        value: https://file-thrifter.vercel.app,https://*.vercel.app,https://file-thrifter-7pyo9klyr-1221smolkiddos-projects.vercel.app,http://localhost:5173
       - key: STUN_SERVERS
         value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
       - key: LOG_LEVEL
