@@ -51,10 +51,11 @@ export function useWebSocketSession() {
       return wsRef.current;
     }
 
-    const host = window.location.hostname || 'localhost';
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const defaultProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const defaultPort = window.location.port === '5173' || window.location.port === '3000' ? ':4000' : (window.location.port ? `:${window.location.port}` : '');
-    const wsUrl = import.meta.env.VITE_WS_URL || `${defaultProto}//${host}${defaultPort}`;
+    const localWsUrl = `${defaultProto}//${window.location.hostname || 'localhost'}${defaultPort}`;
+    const wsUrl = import.meta.env.VITE_WS_URL || (isLocal ? localWsUrl : 'wss://file-thrifter.onrender.com');
     const socket = new WebSocket(wsUrl);
 
     socket.binaryType = 'arraybuffer';
